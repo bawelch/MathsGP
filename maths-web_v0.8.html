@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Force-Directed Graph</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .link {
+            /*stroke: #999;*/
+        }
+
+        .node circle {
+            /*stroke: #555;
+            stroke-width: 1.5px;*/
+        }
+
+        .node text {
+            font-size: 10px;
+            font-family: sans-serif;
+        }
+
+        .tooltip {
+            position: absolute;
+            background-color: white;
+            border: 1px solid #ccc;
+            padding: 5px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-family: sans-serif;
+            pointer-events: none;
+            visibility: hidden;
+        }
+
+        .controls-container {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            border-bottom: 1px solid #ddd;
+            box-sizing: border-box;
+        }
+
+        .controls {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: sans-serif;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+
+        .text-box {
+            margin-left: 10px;
+            flex-grow: 1;
+            background: rgba(245, 245, 245, 1);
+            border: 1px solid #ddd;
+            padding: 10px;
+            font-family: sans-serif;
+            font-size: 12px;
+            line-height: 1.5;
+            border-radius: 5px;
+            height: fit-content;
+            box-sizing: border-box;
+        }
+
+        svg {
+            display: block;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls-container">
+        <div class="controls">
+            <div>
+                <div class="slider-label">
+                    <span>Link Distance</span><span id="linkDistanceValue">100</span>
+                </div>
+                <input type="range" id="linkDistance" min="5" max="500" step="5" value="100">
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>Charge Strength</span><span id="chargeStrengthValue">-100</span>
+                </div>
+                <input type="range" id="chargeStrength" min="-1000" max="0" step="20" value="-100">
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>Collision Radius</span><span id="collisionRadiusValue">50</span>
+                </div>
+                <input type="range" id="collisionRadius" min="5" max="500" step="5" value="50">
+            </div>
+        </div>
+        <div class="text-box" id="textBox">
+            Click on a node to see its details here.
+        </div>
+    </div>
+    <div class="tooltip"></div>
+    <svg></svg>
+    <script>
+        /**
+         * Attempt to set a new x-position for `click_node` based on your rules.
+         *
+         * @param {Object} click_node  The node datum the user clicked.
+         * @param {Array} nodes        The array of all node data, each with { id, x, year, spineheld, ... }.
+         * @param {Array} links        The array of all link data, each with { source, target }.
+         * @param {Number} gridSize    The grid size or snap increment (for normal snapping).
+         * @param {Number} TRACK_GAP   The time gap threshold to ensure no overlaps in years.
+         */
+        function setNodeXPosition(click_node, nodes, links, gridSize, TRACK_GAP) {
+            // 1) Identify parents + children
+            const parentNodes = findParentNodes(click_node, nodes, links);
+            const childNodes = findChildNodes(click_node, nodes, links);
+
+            // 2) Filter those parents / children to the ones that are spineheld=1
+            const heldParents = parentNodes.filter(p => p.spineheld === 1);
+            const heldChildren = childNodes.filter(c => c.spineheld === 1);
+
+            // 3) For each held parent, check viability
+            const viableParents = [];
+            for (let p of heldParents) {
+                if (checkParentViability(click_node, p, nodes)) {
+                    viableParents.push(p);
+                }
+            }
+
+            // 4) For each held child, check viability
+            const viableChildren = [];
+            for (let c of heldChildren) {
+                if (checkChildViability(click_node, c, nodes)) {
+                    viableChildren.push(c);
+                }
+            }
+
+            // 5) Decide how to set X based on your rules
+
+            // => "no parent or child nodes are held: snap to position as currently"
+            if (heldParents.length === 0 && heldChildren.length === 0) {
+                snapToGrid(click_node, gridSize);
+                return;
+            }
+
+            // => "no parent nodes held, viable child_nodes: place at the same x as one of viable child nodes"
+            if (heldParents.length === 0 && viableChildren.length > 0) {
+                const chosenChild = viableChildren[0];
+                click_node.x = chosenChild.x;
+                click_node.fx = chosenChild.x; // fix if desired
+                return;
+            }
+
+            // => "no child nodes held, viable parent_nodes: place at the same x as one of viable parent nodes"
+            if (heldChildren.length === 0 && viableParents.length > 0) {
+                const chosenParent = viableParents[0];
+                click_node.x = chosenParent.x;
+                click_node.fx = chosenParent.x;
+                return;
+            }
+
+            // => "viable child and parent nodes: check for a pair of child/parent nodes with the same x"
+            if (viableChildren.length > 0 && viableParents.length > 0) {
+                const childXs = viableChildren.map(c => c.x);
+                const matchingParent = viableParents.find(p => childXs.includes(p.x));
+                if (matchingParent) {
+                    click_node.x = matchingParent.x;
+                    click_node.fx = matchingParent.x;
+                    return;
+                } else {
+                    // "If not set to the x of a viable parent node"
+                    const chosenParent = viableParents[0];
+                    click_node.x = chosenParent.x;
+                    click_node.fx = chosenParent.x;
+                    return;
+                }
+            }
+
+            // => "all other cases: find a valid x where no other held nodes
+            //     have node_year within TRACK_GAP either side of click_node"
+            const foundFreeX = findValidX(click_node, nodes, gridSize, TRACK_GAP);
+            if (foundFreeX != null) {
+                click_node.x = foundFreeX;
+                click_node.fx = foundFreeX;
+            } else {
+                // fallback to normal grid snap
+                snapToGrid(click_node, gridSize);
+            }
+        }
+
+        /**
+         * Example function to check if a 'parentNode' is viable for the 'click_node'.
+         *   - "for each held parent_node: check if there is any other node (check_node) that:
+         *        a) is not click_node
+         *        b) is held
+         *        c) has the same current x as the parent node
+         *        d) has check_node_year < click_node_year
+         *        e) has check_node_year > parent_node.year
+         *      if yes => return false (inviable)
+         *      if no => return true (viable)
+         */
+        function checkParentViability(click_node, parentNode, nodes) {
+            for (let check_node of nodes) {
+                if (
+                    check_node !== click_node &&
+                    check_node.spineheld === 1 &&
+                    check_node.x === parentNode.x &&
+                    check_node.year < click_node.year &&
+                    check_node.year > parentNode.year
+                ) {
+                    return false; // inviability found
+                }
+            }
+            return true; // viable
+        }
+
+        /**
+         * Similar logic for child:
+         *   - "check if there's any other node (check_node) that:
+         *       a) is not click_node
+         *       b) is held
+         *       c) has the same current x as child_node
+         *       d) check_node_year > click_node_year
+         *       e) check_node_year < child_node.year
+         *     if yes => return false
+         *     if no => return true
+         */
+        function checkChildViability(click_node, childNode, nodes) {
+            for (let check_node of nodes) {
+                if (
+                    check_node !== click_node &&
+                    check_node.spineheld === 1 &&
+                    check_node.x === childNode.x &&
+                    check_node.year > click_node.year &&
+                    check_node.year < childNode.year
+                ) {
+                    return false; // inviability
+                }
+            }
+            return true;
+        }
+
+        /**
+         * If no parent/child constraints apply,
+         * we pick an X that doesn't conflict with any held node whose year is within TRACK_GAP
+         */
+        function findValidX(click_node, nodes, gridSize, TRACK_GAP) {
+            let potentialX = Math.round(click_node.x / gridSize) * gridSize;
+            const hasConflict = nodes.some(n => {
+                if (n.spineheld === 1 && n !== click_node) {
+                    // If the difference in years is < TRACK_GAP and the x is the same
+                    if (Math.abs(n.year - click_node.year) < TRACK_GAP && n.x === potentialX) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+
+            if (!hasConflict) {
+                return potentialX;
+            } else {
+                // Could try shifting +/- 1 grid step or more searching
+                return null;
+            }
+        }
+
+        /** Simple helper to snap a node to the nearest grid increment. */
+        function snapToGrid(node, gridSize) {
+            const newX = Math.round(node.x / gridSize) * gridSize;
+            node.x = newX;
+            node.fx = newX;
+        }
+
+        /**
+         * Finds all parent nodes of `click_node` by scanning `allLinks`.
+         *
+         * "Parent" is defined as:
+         *   a node N where there is a link N → click_node.
+         *   i.e. link.source.id === N.id && link.target.id === click_node.id
+         *
+         * @param {Object}  click_node  The node whose parents we want.
+         * @param {Array}   allNodes    The array of node data.
+         * @param {Array}   allLinks    The link data, each { source, target }.
+         * @returns {Array} An array of node objects that are parents.
+         */
+        function findParentNodes(click_node, allNodes, allLinks) {
+            const parentIDs = allLinks
+                .filter(link => link.target.id === click_node.id)
+                .map(link => link.source.id);
+            return allNodes.filter(n => parentIDs.includes(n.id));
+        }
+
+        /**
+         * Finds all child nodes of `click_node` by scanning `allLinks`.
+         *
+         * "Child" is defined as:
+         *   a node N where there is a link click_node → N.
+         *   i.e. link.source.id === click_node.id && link.target.id === N.id
+         *
+         * @param {Object}  click_node  The node whose children we want.
+         * @param {Array}   allNodes    The array of node data.
+         * @param {Array}   allLinks    The link data, each { source, target }.
+         * @returns {Array} An array of node objects that are children.
+         */
+        function findChildNodes(click_node, allNodes, allLinks) {
+            const childIDs = allLinks
+                .filter(link => link.source.id === click_node.id)
+                .map(link => link.target.id);
+            return allNodes.filter(n => childIDs.includes(n.id));
+        }
+
+        /**
+         * Applies a style preset to a node with a given ID.
+         * @param {String|Number} nodeId     The ID of the node you want to style
+         * @param {String} styleCode         A key in NODE_STYLES, e.g. "highlight", "incoming"
+         */
+        function applyNodeStyle(nodeId, styleCode) {
+            const stylePreset = NODE_STYLES[styleCode];
+            if (!stylePreset) {
+                console.warn(`No style preset found for code "${styleCode}". Skipping...`);
+                return;
+            }
+
+            const circleSelection = d3.selectAll(".node")
+                .filter(d => d.id === nodeId)
+                .select("circle");
+
+            Object.entries(stylePreset).forEach(([attrName, attrValue]) => {
+                circleSelection.attr(attrName, attrValue);
+            });
+        }
+
+        /**
+         * Applies a style preset to a link with the given datum.
+         * @param {Object} focusLinkData    The link datum to style
+         * @param {String} styleCode        A key in LINK_STYLES
+         */
+        function applyLinkStyle(focusLinkData, styleCode) {
+            const stylePreset = LINK_STYLES[styleCode];
+            if (!stylePreset) {
+                console.warn(`No style preset found for code "${styleCode}". Skipping...`);
+                return;
+            }
+
+            const linkSelection = d3.selectAll(".link")
+                .filter(d => d === focusLinkData);
+
+            Object.entries(stylePreset).forEach(([attrName, attrValue]) => {
+                linkSelection.attr(attrName, attrValue);
+            });
+        }
+
+        function recalcPositions(clickedNode) {
+            const newX = Math.round(clickedNode.x / 200) * 200;
+            clickedNode.x = newX;
+            clickedNode.fx = newX;
+
+            nodes.forEach(n => {
+                if (n.spineheld === 1) {
+                    const shiftedX = n.x + 50;
+                    n.x = shiftedX;
+                    n.fx = shiftedX;
+                }
+            });
+
+            simulation.alpha(1).restart();
+        }
+
+        function adjustSVGHeight() {
+            const controlsHeight = document.querySelector(".controls-container").offsetHeight;
+            const svgWidth = window.innerWidth;
+            const svgHeight = window.innerHeight - controlsHeight;
+
+            d3.select("svg")
+                .attr("width", svgWidth)
+                .attr("height", svgHeight);
+
+            return { svgWidth, svgHeight };
+        }
+
+        let { svgWidth, svgHeight } = adjustSVGHeight();
+        const svg = d3.select("svg");
+        const g = svg.append("g");
+
+        const NODE_STYLES = {
+            selected: {
+                r: 6,
+                "fill-opacity": 1,
+                "stroke": "black",
+                "stroke-width": 4,
+                "stroke-opacity": 1
+            },
+            spine: {
+                r: 6,
+                "fill-opacity": 1,
+                "stroke": "green",
+                "stroke-width": 2,
+                "stroke-opacity": 1
+            },
+            nonspine: {
+                r: 6,
+                "fill-opacity": 1,
+                "stroke": "red",
+                "stroke-width": 2,
+                "stroke-opacity": 0.8
+            },
+            choice_in: {
+                r: 8,
+                "fill-opacity": 1,
+                "stroke": "black",
+                "stroke-width": 6,
+                "stroke-opacity": 0.3
+            },
+            choice_out: {
+                r: 10,
+                "fill-opacity": 1,
+                "stroke": "yellow",
+                "stroke-width": 6,
+                "stroke-opacity": 0.5
+            },
+            revealed: {
+                r: 5,
+                "fill-opacity": 0.3,
+                "stroke": "black",
+                "stroke-width": 1,
+                "stroke-opacity": 0.2
+            },
+            pool: {
+                r: 3,
+                "fill-opacity": 0.1,
+                "stroke": "none"
+            }
+        };
+
+        const LINK_STYLES = {
+            spine: {
+                "stroke": "black",
+                "stroke-width": 2,
+                "stroke-opacity": 0.8
+            },
+            spineadjacent: {
+                "stroke": "black",
+                "stroke-width": 5,
+                "stroke-opacity": 0.3
+            },
+            general: {
+                "stroke": "yellow",
+                "stroke-width": 5,
+                "stroke-opacity": 0.5
+            },
+            choice_in: {
+                "stroke": "black",
+                "stroke-width": 3,
+                "stroke-opacity": 0.5
+            },
+            choice_out: {
+                "stroke": "yellow",
+                "stroke-width": 3,
+                "stroke-opacity": 1
+            },
+            pool: {
+                "stroke": "none"
+            }
+        };
+
+        d3.json("mgpdata.json").then(graphData => {
+            let nodes = graphData.nodes;
+            let links = graphData.links;
+            const all_nodes = graphData.nodes;
+            const all_links = graphData.links;
+
+            // Maintain lists for removed nodes and links
+            let removedNodes = new Map(); // Key: Node ID, Value: Descendant nodes
+            let removedLinks = new Map(); // Key: Node ID, Value: Descendant links
+
+            // Initialize hidden state for nodes and links
+            nodes.forEach(node => node.hidden = false);
+            links.forEach(l => {
+                l.hidden = false;
+                l.highlighted = false;
+                l.highlightColor = null;
+            });
+
+            let linkDistance = 100;
+            let chargeStrength = 0;
+            let collisionRadius = 50;
+
+            // Fix vertical positions and first node's x-axis
+            nodes.forEach((d, i) => {
+                d.year = d.y;
+                d.spine = 0;
+                d.choice = 0;
+                d.spineheld = 0;
+                d.fixedY = svgHeight - ((d.y - 1660) / (2005 - 1660)) * svgHeight;
+                d.fixedY = Math.max(10, Math.min(svgHeight - 10, d.fixedY));
+                if (i === 0) {
+                    d.fx = svgWidth / 2; // Fix X position
+                    d.spine = 1;
+                    d.spineheld = 1;
+                }
+            });
+
+            const simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(links).id(d => d.id).distance(linkDistance))
+                .force("charge", d3.forceManyBody().strength(chargeStrength))
+                .force("collision", d3.forceCollide().radius(collisionRadius))
+                .on("tick", ticked);
+
+            let link = g.append("g")
+                .attr("class", "links")
+                .selectAll("line")
+                .data(links)
+                .enter()
+                .append("line")
+                .attr("class", "link")
+                .attr("stroke-opacity", 0.2)
+                .attr("spineheld", 0);
+
+            let node = g.append("g")
+                .attr("class", "nodes")
+                .selectAll("g")
+                .data(nodes)
+                .enter()
+                .append("g")
+                .attr("class", "node")
+                .attr("fill-opacity", 0.2)
+                .attr("stroke-opacity", 0.2);
+
+            // Add drag behavior
+            const drag = d3.drag()
+                .on("start", dragStarted)
+                .on("drag", dragged)
+                .on("end", dragEnded);
+
+            node.call(drag);
+
+            function updateGraph() {
+                link
+                    .style("visibility", d => (d.hidden ? "hidden" : "visible"));
+                node
+                    .style("visibility", d => (d.hidden ? "hidden" : "visible"));
+            }
+
+            function dragStarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+            }
+
+            function dragged(event, d) {
+                d.fx = Math.max(10, Math.min(svgWidth - 10, event.x));
+                d.x = d.fx;
+            }
+
+            function dragEnded(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = d.x;
+                d.fx = Math.round(d.x / 200) * 200;
+            }
+
+            node.append("circle")
+                .attr("r", 5)
+                .attr("fill", d => d.color)
+                .on("mouseover", (event, d) => {
+                    d3.select(".tooltip")
+                        .style("visibility", "visible")
+                        .style("top", `${event.pageY + 10}px`)
+                        .style("left", `${event.pageX + 10}px`)
+                        .html(`<strong>${d.name}</strong><br>${d.tooltip}`);
+                })
+                .on("mousemove", (event) => {
+                    d3.select(".tooltip")
+                        .style("top", `${event.pageY + 10}px`)
+                        .style("left", `${event.pageX + 10}px`);
+                })
+                .on("mouseout", () => {
+                    d3.select(".tooltip").style("visibility", "hidden");
+                });
+
+            // Add an event listener to reset formatting when clicking on empty space
+            svg.on("click", () => {
+                // resetFormatting(); // commented out
+            });
+
+            // node.on("dblclick", ...) // (commented out alternatives)
+
+            node.on("click", (event, d) => {
+                resetFormatting();
+
+                if (d.spineheld === 0) {
+                    setNodeXPosition(d, nodes, links, 200, 20);
+                }
+
+                d.spineheld = 1;
+
+                d3.selectAll(".node")
+                    .filter(n => n.id === d.id)
+                    .append("text")
+                    .attr("x", 9)
+                    .attr("y", 3)
+                    .text(n => n.name)
+                    .attr("fill", "black")
+                    .attr("fill-opacity", 1)
+                    .style("font-size", "12px")
+                    .style("font-weight", "bold");
+
+                d3.selectAll(".node")
+                    .filter(n => n.id === d.id)
+                    .select("circle")
+                    .attr("r", 7)
+                    .attr("fill-opacity", 0.898)
+                    .attr("stroke-opacity", 1);
+
+                applyNodeStyle(d.id, "selected");
+
+                const visitedIncoming = new Set();
+                function highlightIncoming(nodeId) {
+                    if (visitedIncoming.has(nodeId)) return;
+                    visitedIncoming.add(nodeId);
+
+                    links.forEach(link => {
+                        if (link.target.id === nodeId) {
+                            link.highlighted = true;
+                            link.highlightColor = "red";
+
+                            applyLinkStyle(link, "choice_in");
+
+                            d3.selectAll(".node")
+                                .filter(n => n.id === link.source.id && link.source.spineheld === 0)
+                                .select("circle")
+                                .attr("r", 10);
+
+                            applyNodeStyle(link.source.id, "choice_in");
+                        }
+                    });
+                }
+
+                const visitedOutgoing = new Set();
+                function highlightOutgoing(nodeId) {
+                    if (visitedOutgoing.has(nodeId)) return;
+                    visitedOutgoing.add(nodeId);
+
+                    links.forEach(link => {
+                        if (link.source.id === nodeId) {
+                            link.highlighted = true;
+                            link.highlightColor = "blue";
+
+                            d3.selectAll(".node")
+                                .filter(n => n.id === link.target.id & link.target.spineheld === 0);
+
+                            applyNodeStyle(link.target.id, "choice_out");
+                        }
+                    });
+                }
+
+                highlightIncoming(d.id);
+                highlightOutgoing(d.id);
+
+                const incomingLinks = links
+                    .filter(link => link.target.id === d.id)
+                    .map(link => `${link.source.id} (${Math.round(link.source.y)}) (A)`);
+
+                const outgoingLinks = links
+                    .filter(link => link.source.id === d.id)
+                    .map(link => `${link.target.id} (${Math.round(link.target.y)}) (S)`);
+
+                const textBoxContent = `
+                        <strong>Name:</strong> ${d.name}<br>
+                        <strong>Year:</strong> ${Math.round(d.year)}<br>
+                        <strong>Connected Nodes:</strong> ${[...incomingLinks, ...outgoingLinks].join(' ') || 'None'}<br>
+                        <strong>Summary:</strong> ${d.tooltip}
+                    `;
+                d3.select("#textBox").html(textBoxContent);
+            });
+
+            node.on("dblclick", (event, d) => {
+                // Reset formatting
+                resetFormatting();
+
+                d.fx = null;
+                d.spineheld = 1;
+
+                d3.selectAll(".node")
+                    .filter(n => n.id === d.id)
+                    .select("circle")
+                    .attr("r", 7)
+                    .attr("fill-opacity", 0.2)
+                    .attr("stroke-opacity", 0.2);
+
+                d3.selectAll(".node")
+                    .filter(n => n.id === d.id)
+                    .selectAll("text")
+                    .remove();
+
+                const visitedIncoming = new Set();
+                function highlightIncoming(nodeId) {
+                    if (visitedIncoming.has(nodeId)) return;
+                    visitedIncoming.add(nodeId);
+
+                    links.forEach(link => {
+                        if (link.target.id === nodeId) {
+                            link.highlighted = false;
+                            link.highlightColor = "red";
+
+                            d3.selectAll(".node")
+                                .filter(n => n.id === link.source.id)
+                                .select("circle")
+                                .attr("r", 10);
+                        }
+                    });
+                }
+
+                const visitedOutgoing = new Set();
+                function highlightOutgoing(nodeId) {
+                    if (visitedOutgoing.has(nodeId)) return;
+                    visitedOutgoing.add(nodeId);
+
+                    links.forEach(link => {
+                        if (link.source.id === nodeId) {
+                            link.highlighted = false;
+                            link.highlightColor = "blue";
+
+                            d3.selectAll(".node")
+                                .filter(n => n.id === link.target.id)
+                                .select("circle")
+                                .attr("r", 10);
+
+                            d3.selectAll(".node")
+                                .filter(n => n.id === link.target.id)
+                                .select("text");
+                        }
+                    });
+                }
+
+                highlightIncoming(d.id);
+                highlightOutgoing(d.id);
+
+                const incomingLinks = links
+                    .filter(link => link.target.id === d.id)
+                    .map(link => `${link.source.id} (${Math.round(link.source.y)}) (A)`);
+
+                const outgoingLinks = links
+                    .filter(link => link.source.id === d.id)
+                    .map(link => `${link.target.id} (${Math.round(link.target.y)}) (S)`);
+
+                const textBoxContent = `
+                        <strong>Name:</strong> ${d.name}<br>
+                        <strong>Year:</strong> ${Math.round(d.year)}<br>
+                        <strong>Connected Nodes:</strong> ${[...incomingLinks, ...outgoingLinks].join(' ') || 'None'}<br>
+                        <strong>Summary:</strong> ${d.tooltip}
+                    `;
+                d3.select("#textBox").html(textBoxContent);
+            });
+
+            function resetFormatting() {
+                links.forEach(l => {
+                    if (l.source.spineheld === 1 && l.target.spineheld === 1) {
+                        return;
+                    }
+                    l.highlighted = false;
+                    l.highlightColor = null;
+                });
+
+                nodes.forEach(resetnode => {
+                    if (resetnode.spineheld === 0) {
+                        applyNodeStyle(resetnode.id, "pool");
+                    }
+                    if (resetnode.spineheld === 1) {
+                        applyNodeStyle(resetnode.id, "selected");
+                    }
+                });
+
+                d3.selectAll(".link");
+                // .attr("stroke-opacity", 0);  // or 0.2 if you want a faint default
+                // d3.selectAll(".node circle")
+                //     .attr("stroke", "none");
+            }
+
+            function removeDescendants(node) {
+                const descendants = new Set();
+                const linksToRemove = [];
+                const nodesToRemove = [];
+
+                function findDescendants(nodeId) {
+                    links.forEach(link => {
+                        if (link.source.id === nodeId) {
+                            descendants.add(link.target.id);
+                            linksToRemove.push(link);
+                            findDescendants(link.target.id);
+                        }
+                    });
+                }
+
+                findDescendants(node.id);
+
+                descendants.forEach(descendantId => {
+                    const descendantNode = nodes.find(n => n.id === descendantId);
+                    if (descendantNode) nodesToRemove.push(descendantNode);
+                });
+
+                removedNodes.set(node.id, nodesToRemove);
+                removedLinks.set(node.id, linksToRemove);
+
+                nodes.splice(0, nodes.length, ...nodes.filter(n => !descendants.has(n.id)));
+                links.splice(0, links.length, ...links.filter(l => !linksToRemove.includes(l)));
+            }
+
+            function restoreDescendants(node) {
+                const nodesToRestore = removedNodes.get(node.id) || [];
+                const linksToRestore = removedLinks.get(node.id) || [];
+
+                nodes.push(...nodesToRestore);
+                links.push(...linksToRestore);
+
+                removedNodes.delete(node.id);
+                removedLinks.delete(node.id);
+            }
+
+            function restartSimulation() {
+                link = g.selectAll(".link")
+                    .data(links, d => `${d.source.id}-${d.target.id}`);
+                link.exit().remove();
+                link.enter()
+                    .append("line")
+                    .attr("class", "link")
+                    .merge(link);
+
+                node = g.selectAll(".node")
+                    .data(nodes, d => d.id);
+                node.exit().remove();
+
+                const nodeEnter = node.enter()
+                    .append("g")
+                    .attr("class", "node")
+                    .call(drag);
+
+                nodeEnter.append("circle")
+                    .attr("r", 5)
+                    .attr("fill", d => d.color);
+
+                node = nodeEnter.merge(node);
+
+                simulation.nodes(nodes);
+                simulation.force("link").links(links);
+                simulation.alpha(1).restart();
+            }
+
+            function ticked() {
+                nodes.forEach(d => {
+                    d.x = Math.max(10, Math.min(svgWidth - 10, d.x));
+                });
+
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.fixedY)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.fixedY)
+                    // .attr("stroke", d => d.highlighted ? d.highlightColor : "#999")
+                    .attr("stroke-width", d => d.highlighted ? 3 : 1.5)
+                    .attr("stroke-opacity", d => d.highlighted ? 1 : 0.2);
+
+                node
+                    .attr("transform", d => `translate(${d.x},${d.fixedY})`);
+            }
+
+            d3.select("#linkDistance").on("input", function () {
+                linkDistance = +this.value;
+                d3.select("#linkDistanceValue").text(linkDistance);
+                simulation.force("link", d3.forceLink(links).id(d => d.id).distance(linkDistance));
+                simulation.alpha(1).restart();
+            });
+
+            d3.select("#chargeStrength").on("input", function () {
+                chargeStrength = +this.value;
+                d3.select("#chargeStrengthValue").text(chargeStrength);
+                simulation.force("charge", d3.forceManyBody().strength(chargeStrength));
+                simulation.alpha(1).restart();
+            });
+
+            d3.select("#collisionRadius").on("input", function () {
+                collisionRadius = +this.value;
+                d3.select("#collisionRadiusValue").text(collisionRadius);
+                simulation.force("collision", d3.forceCollide().radius(collisionRadius));
+                simulation.alpha(1).restart();
+            });
+        }).catch(error => console.error(error));
+    </script>
+</body>
+</html>

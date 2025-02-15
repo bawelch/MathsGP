@@ -1,0 +1,21 @@
+{
+  "nodes": [
+{"id": 1, "name": "Isaac Newton", "school": "University of Cambridge", "tooltip": "Formulated the laws of motion and universal gravitation, foundational in classical mechanics. His work in optics and calculus also laid the groundwork for modern physics and mathematics.", "color": "purple", "y": 1668, "np": 0, "kh": 1705, "rs": 1703, "size": 5 },
+{"id": 2, "name": "Franciscus Sylvius", "school": "Universiteit Leiden and Universität Basel", "tooltip": "Physician and anatomist, regarded as one of the founders of modern clinical medicine and chemical pathology. His work on the circulation of the blood and brain anatomy was pioneering.", "color": "white", "y": 1634, "np": 0, "kh": 0, "rs": 0, "size": 5 },
+{"id": 3, "name": "Martinus Schoock", "school": "Universiteit Utrecht", "tooltip": "Dutch scholar and prolific writer known for his work in philosophy, theology, and science. He wrote against René Descartes, contributing to debates on Cartesian philosophy.", "color": "white", "y": 1636, "np": 0, "kh": 0, "rs": 0, "size": 5 },
+{"id": 4, "name": "John Gough", "school": "?", "tooltip": "British mathematician and physicist, blind from infancy, who contributed to the understanding of elasticity and thermodynamics. Mentored John Dalton, influencing atomic theory.", "color": "white", "y": 1810, "np": 0, "kh": 0, "rs": 0, "size": 5 },
+{"id": 5, "name": "John Cranke", "school": "?", "tooltip": "Mathematician and philosopher, known for his work in mathematical logic and early contributions to calculus.", "color": "white", "y": 1774, "np": 0, "kh": 0, "rs": 0, "size": 5 },
+{"id": 6, "name": "Gottfried Möbius", "school": "Friedrich-Schiller-Universität Jena", "tooltip": "Known for contributions to projective geometry and topology, including the Möbius strip, a non-orientable surface. His work continues to be a cornerstone in mathematical topology and physics.", "color": "white", "y": 1640, "np": 0, "kh": 0, "rs": 0, "size": 5 },
+{"id": 7, "name": "Johann von Brunn", "school": "Universität Basel", "tooltip": "Mathematician and astronomer, contributed to early studies in geometry and celestial mechanics. His work laid groundwork for modern astronomical calculations.", "color": "white", "y": 1615, "np": 0, "kh": 0, "rs": 0, "size": 5 }
+],
+  "links": [
+{ "source": 21,"target": 12 },
+{ "source": 21,"target": 13 },
+{ "source": 21,"target": 14 },
+{ "source": 21,"target": 15 },
+{ "source": 21,"target": 16 },
+{ "source": 37,"target": 17 },
+{ "source": 37,"target": 18 }
+  
+  ]
+}

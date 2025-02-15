@@ -1,0 +1,44 @@
+body {
+    margin: 0;
+    overflow: hidden;
+}
+
+.link {
+    /*stroke: #999;*/
+}
+
+.node circle {
+    /*stroke: #555;
+  stroke-width: 1.5px;*/
+}
+
+.node text {
+    font-size: 10px;
+    font-family: sans-serif;
+}
+
+/* Etc. your entire style block from <style> can go here */
+
+.tooltip {
+    position: absolute;
+    background-color: white;
+    border: 1px solid #ccc;
+    padding: 5px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: sans-serif;
+    pointer-events: none;
+    visibility: hidden;
+}
+
+.controls-container {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.9);
+    border-bottom: 1px solid #ddd;
+    box-sizing: border-box;
+}
+
+/* and so on... */

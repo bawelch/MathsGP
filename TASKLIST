@@ -1,0 +1,40 @@
+---MAPPING
+if no valid parent point but valid child point, place under child 
+Smart point find (radiate out, prefer point based on parent/child position rules) - not perfect but mostly behaves
+
+---UI
+Start with source and target selection, confirmation then applies reset formatting
+Check dblclick works [no, need to apply a "removed" link style]
+Why don't some clicks register?
+Different styles for options alrady lockedUpdate
+If no further links on a click, re-open the source (in future add something else interesting to dead ends)
+Currently its adding new text over on each click, mostly lines but occasional creates boldind, only add on full redraw
+Need an indicator/glow on held nodes with nodes left to click and/or spine points 
+Calculate and apply spine
+Figure out how to detect links crossing
+
+Have a little man on a library ladder drawing this on a blackboard
+
+---GAMEPLAY
+Track clicks/actions (Energy System)
+Event triggered on completing spine (partial and full)
+Add Game Loop (explore/expand spine/allspine/allanc/alldesc)
+Resources
+Dynamic customisation
+
+---CUSTOMISATION
+Add variable grid size
+Add variable text size
+Add variable node/link scales
+
+---COSMETIC
+Background image
+Add basic glow 
+Dynamic node and link effects
+
+---NETWORK
+Set up for online use
+
+---DATA
+Validation check of existing data (look for map anomalies)
+Output anything with parent_node year >= child_node_year, anything where did >N years

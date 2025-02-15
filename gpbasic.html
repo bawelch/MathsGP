@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Force-Directed Graph with Unique Tooltips</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    .link {
+      stroke: #999;
+      stroke-opacity: 0.6;
+    }
+    .node circle {
+      fill: #69b3a2;
+      stroke: #555;
+      stroke-width: 1.5px;
+    }
+    .node text {
+      font-size: 12px;
+      font-family: sans-serif;
+    }
+    .tooltip {
+      position: absolute;
+      background-color: white;
+      border: 1px solid #ccc;
+      padding: 5px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-family: sans-serif;
+      pointer-events: none;
+      visibility: hidden;
+    }
+  </style>
+</head>
+<body>
+  <svg></svg>
+  <div class="tooltip"></div>
+  <script>
+    // Calculate responsive dimensions
+    const margin = { top: 50, right: 50, bottom: 50, left: 50 };
+    const svgWidth = window.innerWidth;
+    const svgHeight = window.innerHeight;
+
+    const width = svgWidth - margin.left - margin.right;
+    const height = svgHeight - margin.top - margin.bottom;
+
+const nodes = [
+      { id: "Isaac Newton", y: 1668, tooltip: "Discovered the laws of motion and universal gravitation." },
+      { id: "Roger Cotes", y: 1706, tooltip: "Known for his work on the logarithmic spiral and differential calculus." },
+      { id: "John Flamstead", y: 1706, tooltip: "The first Astronomer Royal." },
+      { id: "Robert Hooke", y: 1663, tooltip: "Discovered Hooke's law of elasticity and contributed to microscopy." },
+      { id: "Robert Smith", y: 1715, tooltip: "Mathematician and author of the influential 'Opticks' treatise." },
+      { id: "Edmond Halley", y: 1680, tooltip: "Predicted the orbit of Halley's Comet." },
+      { id: "Stephen Whisson", y: 1742, tooltip: "Contributed to mathematical teaching and astronomy." },
+      { id: "Walter Taylor", y: 1723, tooltip: "A mathematical tutor and teacher in the 18th century." },
+      { id: "James Pound", y: 1694, tooltip: "A notable astronomer and mathematician of the early 18th century." },
+      { id: "John Cranke", y: 1774, tooltip: "Mathematician involved in advancements in applied calculus." },
+      { id: "Thomas Postelthwaite", y: 1756, tooltip: "Known for his work in educational reform and mathematics." },
+      { id: "James Bradley", y: 1717, tooltip: "An astronomer who discovered the aberration of light." },
+      { id: "John Dawson", y: 1780, tooltip: "A significant contributor to geometry and mathematical theory." },
+      { id: "Thomas Jones", y: 1782, tooltip: "A mathematician with contributions to algebra and analysis." },
+      { id: "Adam Sedgwick", y: 1811, tooltip: "A geologist and mathematician known for studying the Cambrian system." },
+      { id: "William Hopkins", y: 1830, tooltip: "Contributed to celestial mechanics and glacial motion theory." },
+      { id: "George Gabriel Stokes", y: 1841, tooltip: "Developed Stokes' theorem and contributed to fluid mechanics." },
+      { id: "James Clark Maxwell", y: 1854, tooltip: "Formulated the classical theory of electromagnetic radiation." },
+      { id: "Edward Routh", y: 1857, tooltip: "Known for Routh's theorem and stability analysis." },
+      { id: "Lord Rayleigh", y: 1868, tooltip: "Worked on wave theory and acoustics, winning the Nobel Prize in Physics." },
+      { id: "JJ Thompson", y: 1883, tooltip: "Discovered the electron and conducted seminal work in electromagnetism." },
+      { id: "Niels Bohr", y: 1911, tooltip: "Developed the Bohr model of the atom and quantum theory." },
+      { id: "Micheal Foster", y: 1859, tooltip: "A physiologist who integrated mathematics into biology." },
+      { id: "John Newport Langley", y: 1874, tooltip: "Studied the autonomic nervous system and mathematical biology." },
+      { id: "William Whiston", y: 1695, tooltip: "Successor to Newton as Lucasian Professor, known for his work on comets." },
+      { id: "William Morley Fletcher", y: 1904, tooltip: "Contributed to physiological research involving mathematics." },
+      { id: "Archibald Hill", y: 1909, tooltip: "Pioneered mathematical models of muscle physiology." },
+      { id: "Ernest Rutherford", y: 1895, tooltip: "Known as the father of nuclear physics." },
+      { id: "Ralph Fowler", y: 1915, tooltip: "Worked on statistical mechanics and quantum theory." },
+      { id: "Douglas Raynor Hartree", y: 1926, tooltip: "Developed computational methods in atomic physics." },
+      { id: "Robert Dingle", y: 1942, tooltip: "Worked on theoretical physics and mathematics." },
+      { id: "Michael Berry", y: 1965, tooltip: "Developed Berry phase in quantum mechanics." },
+      { id: "Christopher Howls", y: 1992, tooltip: "Focused on asymptotic analysis and mathematical physics." },
+      { id: "Barry Welch", y: 2005, tooltip: "Worked in computational applied mathematics." },
+      { id: "Phillip Langman", y: 2005, tooltip: "Contributed to computational fluid dynamics." },
+      { id: "William Sharpey", y: 1823, tooltip: "Known as the father of modern physiology." },
+      { id: "Thomas Henry Huxley", y: 1842, tooltip: "Prominent biologist and supporter of Darwin, linked to mathematical biology." },
+      { id: "Charles Sherrington", y: 1886, tooltip: "Developed the concept of the synapse and mathematical neurobiology." },
+      { id: "John Fulton", y: 1926, tooltip: "Studied cerebral blood flow with mathematical models." },
+      { id: "Morris Bender", y: 1932, tooltip: "Worked on neurological disorders and mathematical neurology." },
+      { id: "Harvey Williams Cushing", y: 1910, tooltip: "Integrated mathematics into neurosurgery studies." },
+      { id: "Alexander William Bickerton", y: 1880, tooltip: "Worked on cosmic physics and stellar collisions." },
+      { id: "James Jurin", y: 1709, tooltip: "Known for his work on capillarity and optics." }
+    ];
+
+    const links = [
+      { source: "Isaac Newton", target: "Roger Cotes" },
+      { source: "Isaac Newton", target: "John Flamstead" },
+      { source: "Roger Cotes", target: "Robert Smith" },
+      { source: "John Flamstead", target: "Edmond Halley" },
+      { source: "Walter Taylor", target: "Stephen Whisson" },
+      { source: "Robert Smith", target: "Walter Taylor" },
+      { source: "Edmond Halley", target: "James Pound" },
+      { source: "Stephen Whisson", target: "Thomas Postelthwaite" },
+      { source: "James Bradley", target: "John Dawson" },
+      { source: "John Cranke", target: "Thomas Jones" },
+      { source: "John Dawson", target: "Adam Sedgwick" },
+      { source: "Adam Sedgwick", target: "William Hopkins" },
+      { source: "William Hopkins", target: "George Gabriel Stokes" },
+      { source: "George Gabriel Stokes", target: "Lord Rayleigh" },
+      { source: "Lord Rayleigh", target: "JJ Thompson" },
+      { source: "Lord Rayleigh", target: "Niels Bohr" },
+      { source: "William Sharpey", target: "Micheal Foster" },
+      { source: "Micheal Foster", target: "John Newport Langley" },
+      { source: "Isaac Newton", target: "William Whiston" },
+      { source: "John Newport Langley", target: "William Morley Fletcher" },
+      { source: "William Morley Fletcher", target: "Archibald Hill" },
+      { source: "JJ Thompson", target: "Ernest Rutherford" },
+      { source: "Archibald Hill", target: "Ralph Fowler" },
+      { source: "Ernest Rutherford", target: "Douglas Raynor Hartree" },
+      { source: "Douglas Raynor Hartree", target: "Robert Dingle" },
+      { source: "Robert Dingle", target: "Michael Berry" },
+      { source: "Michael Berry", target: "Christopher Howls" },
+      { source: "Christopher Howls", target: "Barry Welch" },
+      { source: "Christopher Howls", target: "Phillip Langman" },
+      { source: "John Newport Langley", target: "Charles Sherrington" },
+      { source: "Charles Sherrington", target: "John Fulton" },
+      { source: "John Fulton", target: "Morris Bender" },
+      { source: "Thomas Henry Huxley", target: "Alexander William Bickerton" },
+      { source: "William Whiston", target: "James Jurin" },
+      { source: "Robert Hooke", target: "Edmond Halley" },
+      { source: "Thomas Postelthwaite", target: "Thomas Jones" },
+      { source: "Thomas Jones", target: "Adam Sedgwick" },
+      { source: "James Clark Maxwell", target: "Lord Rayleigh" },
+      { source: "Alexander William Bickerton", target: "Ernest Rutherford" },
+      { source: "Micheal Foster", target: "Charles Sherrington" },
+      { source: "Harvey Williams Cushing", target: "John Fulton" },
+      { source: "Roger Cotes", target: "James Jurin" },
+      { source: "Edward Routh", target: "Lord Rayleigh" }
+    ];
+
+    const svg = d3.select("svg")
+      .attr("width", svgWidth)
+      .attr("height", svgHeight);
+
+    const g = svg.append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const tooltip = d3.select(".tooltip");
+
+    // Fix Y positions for nodes within the bounded height
+    nodes.forEach(d => {
+      d.fixedY = height - ((d.y - 1660) / (2005 - 1660)) * height;
+      d.fixedY = Math.max(10, Math.min(height - 10, d.fixedY)); // Ensure Y is within bounds
+    });
+
+    const simulation = d3.forceSimulation(nodes)
+      .force("link", d3.forceLink(links).id(d => d.id).distance(50))
+      .force("charge", d3.forceManyBody().strength(-100))
+      .force("x", d3.forceX(width / 2).strength(0.2))
+      .force("y", null) // Disable Y forces
+      .force("collision", d3.forceCollide().radius(75)) // Collision force with minimum distance of 15px
+      .on("tick", ticked);
+
+    const link = g.append("g")
+      .attr("class", "links")
+      .selectAll("line")
+      .data(links)
+      .enter().append("line")
+      .attr("class", "link");
+
+    const node = g.append("g")
+      .attr("class", "nodes")
+      .selectAll("g")
+      .data(nodes)
+      .enter().append("g")
+      .attr("class", "node");
+
+    node.append("circle")
+      .attr("r", 5)
+      .on("mouseover", (event, d) => {
+        tooltip
+          .style("visibility", "visible")
+          .html(`<strong>${d.id}</strong><br>${d.tooltip}`);
+      })
+      .on("mousemove", (event) => {
+        tooltip
+          .style("top", `${event.pageY + 10}px`)
+          .style("left", `${event.pageX + 10}px`);
+      })
+      .on("mouseout", () => {
+        tooltip.style("visibility", "hidden");
+      });
+
+    node.append("text")
+      .attr("x", 8)
+      .attr("y", 3)
+      .text(d => d.id);
+
+    function ticked() {
+      link
+        .attr("x1", d => Math.max(10, Math.min(width - 10, d.source.x)))
+        .attr("y1", d => d.source.fixedY)
+        .attr("x2", d => Math.max(10, Math.min(width - 10, d.target.x)))
+        .attr("y2", d => d.target.fixedY);
+
+      node
+        .attr("transform", d => `translate(${Math.max(10, Math.min(width - 10, d.x))},${d.fixedY})`);
+    }
+
+    simulation.alpha(1).restart();
+
+    // Update graph on window resize
+    window.addEventListener("resize", () => {
+      const newHeight = window.innerHeight - margin.top - margin.bottom;
+
+      svg.attr("width", window.innerWidth).attr("height", window.innerHeight);
+
+      nodes.forEach(d => {
+        d.fixedY = newHeight - ((d.y - 1660) / (2005 - 1660)) * newHeight;
+        d.fixedY = Math.max(10, Math.min(newHeight - 10, d.fixedY));
+      });
+
+      simulation
+        .force("x", d3.forceX(width / 2).strength(0.1))
+        .alpha(1)
+        .restart();
+    });
+  </script>
+</body>
+</html>

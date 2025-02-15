@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Force-Directed Graph</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+    .link {
+      stroke: #999;
+      stroke-opacity: 0.6;
+    }
+    .node circle {
+      stroke: #555;
+      stroke-width: 1.5px;
+    }
+    .node text {
+      font-size: 10px;
+      font-family: sans-serif;
+    }
+    .tooltip {
+      position: absolute;
+      background-color: white;
+      border: 1px solid #ccc;
+      padding: 5px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-family: sans-serif;
+      pointer-events: none;
+      visibility: hidden;
+    }
+    .controls-container {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      border-bottom: 1px solid #ddd;
+      box-sizing: border-box;
+    }
+    .controls {
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-family: sans-serif;
+      font-size: 12px;
+      box-sizing: border-box;
+    }
+    .text-box {
+      margin-left: 10px;
+      flex-grow: 1;
+      background: rgba(245, 245, 245, 1);
+      border: 1px solid #ddd;
+      padding: 10px;
+      font-family: sans-serif;
+      font-size: 12px;
+      line-height: 1.5;
+      border-radius: 5px;
+      height: fit-content;
+      box-sizing: border-box;
+    }
+    svg {
+      display: block;
+      box-sizing: border-box;
+    }
+  </style>
+</head>
+<body>
+  <div class="controls-container">
+    <div class="controls">
+      <div>
+        <div class="slider-label">
+          <span>Link Distance</span><span id="linkDistanceValue">100</span>
+        </div>
+        <input type="range" id="linkDistance" min="5" max="500" step="5" value="100">
+      </div>
+      <div>
+        <div class="slider-label">
+          <span>Charge Strength</span><span id="chargeStrengthValue">-100</span>
+        </div>
+        <input type="range" id="chargeStrength" min="-1000" max="0" step="20" value="-100">
+      </div>
+      <div>
+        <div class="slider-label">
+          <span>Collision Radius</span><span id="collisionRadiusValue">50</span>
+        </div>
+        <input type="range" id="collisionRadius" min="5" max="500" step="5" value="50">
+      </div>
+    </div>
+    <div class="text-box" id="textBox">
+      Click on a node to see its details here.
+    </div>
+  </div>
+  <div class="tooltip"></div>
+  <svg></svg>
+  <script>
+
+
+
+    function adjustSVGHeight() {
+      const controlsHeight = document.querySelector(".controls-container").offsetHeight;
+      const svgWidth = window.innerWidth;
+      const svgHeight = window.innerHeight - controlsHeight;
+
+      d3.select("svg")
+        .attr("width", svgWidth)
+        .attr("height", svgHeight);
+
+      return { svgWidth, svgHeight };
+    }
+
+    let { svgWidth, svgHeight } = adjustSVGHeight();
+
+    const svg = d3.select("svg");
+    const g = svg.append("g");
+
+    d3.json("mgpdata.json").then(graphData => {
+      const nodes = graphData.nodes;
+      const links = graphData.links;
+
+      let linkDistance = 100;
+      let chargeStrength = 0;
+      let collisionRadius = 50;
+
+      // Fix vertical positions and first node's x-axis
+      nodes.forEach((d, i) => {
+        d.fixedY = svgHeight - ((d.y - 1660) / (2005 - 1660)) * svgHeight;
+        d.fixedY = Math.max(10, Math.min(svgHeight - 10, d.fixedY));
+        if (i === 0) {
+          d.fx = svgWidth / 2; // Fix X position
+        }
+      });
+
+      const simulation = d3.forceSimulation(nodes)
+        .force("link", d3.forceLink(links).id(d => d.id).distance(linkDistance))
+        .force("charge", d3.forceManyBody().strength(chargeStrength))
+        .force("collision", d3.forceCollide().radius(collisionRadius))
+        .on("tick", ticked);
+
+      const link = g.append("g")
+        .attr("class", "links")
+        .selectAll("line")
+        .data(links)
+        .enter().append("line")
+        .attr("class", "link");
+
+      const node = g.append("g")
+        .attr("class", "nodes")
+        .selectAll("g")
+        .data(nodes)
+        .enter().append("g")
+        .attr("class", "node");
+
+      // Add drag behavior to nodes
+      const drag = d3.drag()
+        .on("start", dragStarted)
+        .on("drag", dragged)
+        .on("end", dragEnded);
+
+      node.call(drag);
+
+      // Drag event handlers
+      function dragStarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x; // Fix x position to enable dragging
+      }
+
+      function dragged(event, d) {
+        d.fx = Math.max(10, Math.min(svgWidth - 10, event.x)); // Constrain to viewframe horizontally
+        d.x = d.fx; // Update node's x position
+      }
+
+      function dragEnded(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = d.x; // Keep the node fixed in the dragged position
+      }
+      node.append("circle")
+        .attr("r", 5)
+        .attr("fill", d => d.color)
+        .on("mouseover", (event, d) => {
+          d3.select(".tooltip")
+            .style("visibility", "visible")
+            .style("top", `${event.pageY + 10}px`)
+            .style("left", `${event.pageX + 10}px`)
+            .html(`<strong>${d.name}</strong><br>${d.tooltip}`);
+        })
+        .on("mousemove", (event) => {
+          d3.select(".tooltip")
+            .style("top", `${event.pageY + 10}px`)
+            .style("left", `${event.pageX + 10}px`);
+        })
+        .on("mouseout", () => {
+          d3.select(".tooltip").style("visibility", "hidden");
+        })
+// Add an event listener to reset formatting when clicking on empty space
+svg.on("click", () => {
+  resetFormatting();
+});
+
+node.on("click", (event, d) => {
+  // Prevent reset triggered by svg click
+  event.stopPropagation();
+
+  // Reset formatting
+  resetFormatting();
+
+  // Highlight the original clicked node
+  d3.selectAll(".node")
+    .filter(n => n.id === d.id)
+    .select("circle")
+    .attr("stroke", "red");
+
+  d3.selectAll(".node")
+    .filter(n => n.id === d.id)
+    .select("text")
+    .attr("fill", "red")
+    .style("font-size", "16px")
+    .style("font-weight", "bold"); // Bold text
+
+  // Recursive highlighting for incoming nodes and links
+  const visitedIncoming = new Set();
+  function highlightIncoming(nodeId) {
+    if (visitedIncoming.has(nodeId)) return;
+    visitedIncoming.add(nodeId);
+
+    links.forEach(link => {
+      if (link.target.id === nodeId) {
+        // Highlight the incoming link
+        d3.selectAll(".link")
+          .filter(l => l === link)
+          .attr("stroke", "red")
+          .attr("stroke-width", 3);
+
+        // Highlight the source node
+        d3.selectAll(".node")
+          .filter(n => n.id === link.source.id)
+          .select("circle")
+          .attr("stroke", "red");
+
+        d3.selectAll(".node")
+          .filter(n => n.id === link.source.id)
+          .select("text")
+          .attr("fill", "red")
+          .style("font-size", "14px");
+
+        // Recursively highlight incoming nodes
+        highlightIncoming(link.source.id);
+      }
+    });
+  }
+
+  // Recursive highlighting for outgoing nodes and links
+  const visitedOutgoing = new Set();
+  function highlightOutgoing(nodeId) {
+    if (visitedOutgoing.has(nodeId)) return;
+    visitedOutgoing.add(nodeId);
+
+    links.forEach(link => {
+      if (link.source.id === nodeId) {
+        // Highlight the outgoing link
+        d3.selectAll(".link")
+          .filter(l => l === link)
+          .attr("stroke", "blue")
+          .attr("stroke-width", 3);
+
+        // Highlight the target node
+        d3.selectAll(".node")
+          .filter(n => n.id === link.target.id)
+          .select("circle")
+          .attr("stroke", "blue");
+
+        d3.selectAll(".node")
+          .filter(n => n.id === link.target.id)
+          .select("text")
+          .attr("fill", "blue")
+          .style("font-size", "14px");
+
+        // Recursively highlight outgoing nodes
+        highlightOutgoing(link.target.id);
+      }
+    });
+  }
+
+  // Apply both recursive highlighting
+  highlightIncoming(d.id);
+  highlightOutgoing(d.id);
+
+
+  // Update the text box with connected nodes
+  const incomingLinks = links
+    .filter(link => link.target.id === d.id)
+    .map(link => `${link.source.id} (${Math.round(link.source.y)}) (A)`);
+
+  const outgoingLinks = links
+    .filter(link => link.source.id === d.id)
+    .map(link => `${link.target.id} (${Math.round(link.target.y)}) (S)`);
+
+  const textBoxContent = `
+    <strong>Name:</strong> ${d.name}<br>
+    <strong>Year:</strong> ${Math.round(d.y)}<br>
+    <strong>Connected Nodes:</strong> ${[...incomingLinks, ...outgoingLinks].join(' ') || 'None'}<br>
+    <strong>Summary:</strong> ${d.tooltip}
+  `;
+
+  d3.select("#textBox").html(textBoxContent);
+});
+
+// Function to reset all formatting
+function resetFormatting() {
+  d3.selectAll(".link")
+    .attr("stroke", "#999")
+    .attr("stroke-width", 1.5);
+
+  d3.selectAll(".node circle")
+    .attr("stroke", "none");
+
+  d3.selectAll(".node text")
+    .attr("fill", "black")
+    .style("font-size", "10px")
+    .style("font-weight", "normal"); // Reset bold
+}
+
+
+
+
+      node.append("text")
+        .attr("x", 9)
+        .attr("y", 3)
+        .text(d => d.name);
+
+      function ticked() {
+        // Constrain nodes horizontally, fix vertical position
+        nodes.forEach(d => {
+          d.x = Math.max(10, Math.min(svgWidth - 10, d.x)); // Horizontal bounds
+        });
+
+        link
+          .attr("x1", d => d.source.x)
+          .attr("y1", d => d.source.fixedY)
+          .attr("x2", d => d.target.x)
+          .attr("y2", d => d.target.fixedY);
+
+        node
+          .attr("transform", d => `translate(${d.x},${d.fixedY})`);
+      }
+
+      d3.select("#linkDistance").on("input", function () {
+        linkDistance = +this.value;
+        d3.select("#linkDistanceValue").text(linkDistance);
+        simulation.force("link", d3.forceLink(links).id(d => d.id).distance(linkDistance));
+        simulation.alpha(1).restart();
+      });
+
+      d3.select("#chargeStrength").on("input", function () {
+        chargeStrength = +this.value;
+        d3.select("#chargeStrengthValue").text(chargeStrength);
+        simulation.force("charge", d3.forceManyBody().strength(chargeStrength));
+        simulation.alpha(1).restart();
+      });
+
+      d3.select("#collisionRadius").on("input", function () {
+        collisionRadius = +this.value;
+        d3.select("#collisionRadiusValue").text(collisionRadius);
+        simulation.force("collision", d3.forceCollide().radius(collisionRadius));
+        simulation.alpha(1).restart();
+      });
+    }).catch(error => console.error(error));
+  </script>
+</body>
+</html>

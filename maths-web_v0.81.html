@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Interactive Force-Directed Graph</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+          body {
+              margin: 0;
+              overflow: hidden;
+          }
+
+          .link {
+              /*stroke: #999;*/
+          }
+
+          .node circle {
+              /*stroke: #555;
+        stroke-width: 1.5px;*/
+          }
+
+          .node text {
+              font-size: 10px;
+              font-family: sans-serif;
+          }
+
+          .tooltip {
+              position: absolute;
+              background-color: white;
+              border: 1px solid #ccc;
+              padding: 5px;
+              border-radius: 5px;
+              font-size: 12px;
+              font-family: sans-serif;
+              pointer-events: none;
+              visibility: hidden;
+          }
+
+          .controls-container {
+              display: flex;
+              flex-direction: row;
+              align-items: flex-start;
+              padding: 10px;
+              background: rgba(255, 255, 255, 0.9);
+              border-bottom: 1px solid #ddd;
+              box-sizing: border-box;
+          }
+
+          .controls {
+              background: rgba(255, 255, 255, 0.9);
+              padding: 10px;
+              border: 1px solid #ddd;
+              border-radius: 5px;
+              font-family: sans-serif;
+              font-size: 12px;
+              box-sizing: border-box;
+          }
+
+          .text-box {
+              margin-left: 10px;
+              flex-grow: 1;
+              background: rgba(245, 245, 245, 1);
+              border: 1px solid #ddd;
+              padding: 10px;
+              font-family: sans-serif;
+              font-size: 12px;
+              line-height: 1.5;
+              border-radius: 5px;
+              height: fit-content;
+              box-sizing: border-box;
+          }
+
+          svg {
+              display: block;
+              box-sizing: border-box;
+          }
+    </style>
+</head>
+<body>
+    <!-- Controls and Info Panel -->
+    <div class="controls-container">
+        <div class="controls">
+            <div>
+                <div class="slider-label">
+                    <span>Link Distance</span>
+                    <span id="linkDistanceValue">100</span>
+                </div>
+                <input type="range" id="linkDistance" min="5" max="500" step="5" value="100" />
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>Charge Strength</span>
+                    <span id="chargeStrengthValue">-100</span>
+                </div>
+                <input type="range" id="chargeStrength" min="-1000" max="0" step="20" value="-100" />
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>Collision Radius</span>
+                    <span id="collisionRadiusValue">50</span>
+                </div>
+                <input type="range" id="collisionRadius" min="5" max="500" step="5" value="50" />
+            </div>
+        </div>
+        <div class="text-box" id="textBox">
+            Click on a node to see its details here.
+        </div>
+    </div>
+
+    <!-- Tooltip -->
+    <div class="tooltip"></div>
+
+    <!-- Main SVG Container -->
+    <svg></svg>
+
+    <script>
+        /***************************************************************
+         * 1) HELPER FUNCTIONS & UTILITIES
+         ***************************************************************/
+
+        /**
+         * Dynamically adjusts the SVG size based on the controls panel height.
+         * @returns {Object} { svgWidth, svgHeight }
+         */
+        function adjustSVGHeight() {
+            const controlsHeight = document.querySelector(".controls-container").offsetHeight;
+            const svgWidth = window.innerWidth;
+            const baseBufferHeight = 50
+            const svgHeight = window.innerHeight - controlsHeight-baseBufferHeight;
+
+            d3.select("svg")
+                .attr("width", svgWidth)
+                .attr("height", svgHeight);
+
+            return { svgWidth, svgHeight };
+        }
+
+        /**
+         * Snaps a node's x-coordinate to the given grid size.
+         */
+        function snapToGrid(node, gridSize) {
+            const newX = Math.round(node.x / gridSize) * gridSize;
+            node.x = newX;
+            node.fx = newX;
+        }
+
+        /**
+         * Finds all parent nodes of `click_node` by scanning the links.
+         * "Parent" is where link.source.id === parent's ID and link.target.id === click_node.id
+         */
+        function findParentNodes(click_node, allNodes, allLinks) {
+            const parentIDs = allLinks
+                .filter(link => link.target.id === click_node.id)
+                .map(link => link.source.id);
+            return allNodes.filter(n => parentIDs.includes(n.id));
+        }
+
+        /**
+         * Finds all child nodes of `click_node` by scanning the links.
+         * "Child" is where link.source.id === click_node.id and link.target.id === child's ID
+         */
+        function findChildNodes(click_node, allNodes, allLinks) {
+            const childIDs = allLinks
+                .filter(link => link.source.id === click_node.id)
+                .map(link => link.target.id);
+            return allNodes.filter(n => childIDs.includes(n.id));
+        }
+
+        /**
+         * Checks if a parent node is viable, per your rules:
+         * - Must not find another held node with the same x, whose year is between parent.year and click_node.year.
+         */
+        function checkParentViability(click_node, parentNode, nodes) {
+            for (let check_node of nodes) {
+                if (
+                    check_node !== click_node &&
+                    check_node.spineheld === 1 &&
+                    check_node.x === parentNode.x &&
+                    check_node.year < click_node.year &&
+                    check_node.year > parentNode.year
+                ) {
+                    return false; // inviability found
+                }
+            }
+            return true;
+        }
+
+        /**
+         * Checks if a child node is viable, per your rules:
+         * - Must not find another held node with the same x, whose year is between click_node.year and childNode.year.
+         */
+        function checkChildViability(click_node, childNode, nodes) {
+            for (let check_node of nodes) {
+                if (
+                    check_node !== click_node &&
+                    check_node.spineheld === 1 &&
+                    check_node.x === childNode.x &&
+                    check_node.year > click_node.year &&
+                    check_node.year < childNode.year
+                ) {
+                    return false; // inviability found
+                }
+            }
+            return true;
+        }
+
+        /**
+         * Searches for an x-position that doesn't conflict with any held node if
+         * their year is within TRACK_GAP of click_node.year.
+         */
+        function findValidX(click_node, nodes, gridSize, TRACK_GAP) {
+            const potentialX = Math.round(click_node.x / gridSize) * gridSize;
+            const hasConflict = nodes.some(n => {
+                if (n.spineheld === 1 && n !== click_node) {
+                    const closeInYear = Math.abs(n.year - click_node.year) < TRACK_GAP;
+                    const sameX = n.x === potentialX;
+                    if (closeInYear && sameX) return true;
+                }
+                return false;
+            });
+
+            return hasConflict ? null : potentialX;
+        }
+
+        /**
+         * Sets the node's x-position based on parent/child viability checks.
+         * Follows your multi-step logic to handle parents, children, fallback, etc.
+         */
+        function setNodeXPosition(click_node, nodes, links, gridSize, TRACK_GAP) {
+            // Identify parents and children
+            const parentNodes = findParentNodes(click_node, nodes, links);
+            const childNodes = findChildNodes(click_node, nodes, links);
+
+            // Filter out the ones that are spineheld=1
+            const heldParents = parentNodes.filter(p => p.spineheld === 1);
+            const heldChildren = childNodes.filter(c => c.spineheld === 1);
+
+            // Check viability for each held parent
+            const viableParents = [];
+            for (let p of heldParents) {
+                if (checkParentViability(click_node, p, nodes)) {
+                    viableParents.push(p);
+                }
+            }
+
+            // Check viability for each held child
+            const viableChildren = [];
+            for (let c of heldChildren) {
+                if (checkChildViability(click_node, c, nodes)) {
+                    viableChildren.push(c);
+                }
+            }
+
+            // Decision logic
+            if (heldParents.length === 0 && heldChildren.length === 0) {
+                // No held parents/children => normal snap
+                snapToGrid(click_node, gridSize);
+                return;
+            }
+
+            if (heldParents.length === 0 && viableChildren.length > 0) {
+                // No held parents, but viable children => use a child's x
+                const chosenChild = viableChildren[0];
+                click_node.x = chosenChild.x;
+                click_node.fx = chosenChild.x;
+                return;
+            }
+
+            if (heldChildren.length === 0 && viableParents.length > 0) {
+                // No held children, but viable parents => use a parent's x
+                const chosenParent = viableParents[0];
+                click_node.x = chosenParent.x;
+
+                //moveNodeToX(click_node, chosenParent.x, 0.03, 2000);
+
+
+                click_node.fx = chosenParent.x;
+                return;
+            }
+
+            if (viableChildren.length > 0 && viableParents.length > 0) {
+                // Both child & parent => look for matching x
+                const childXs = viableChildren.map(c => c.x);
+                const matchingParent = viableParents.find(p => childXs.includes(p.x));
+                if (matchingParent) {
+                    click_node.x = matchingParent.x;
+                    click_node.fx = matchingParent.x;
+                } else {
+                    // fallback: viable parent x
+                    const chosenParent = viableParents[0];
+                    click_node.x = chosenParent.x;
+                    click_node.fx = chosenParent.x;
+                }
+                return;
+            }
+
+            // Otherwise: find a free x
+            const foundFreeX = findValidX(click_node, nodes, gridSize, TRACK_GAP);
+            if (foundFreeX != null) {
+                click_node.x = foundFreeX;
+                click_node.fx = foundFreeX;
+            } else {
+                snapToGrid(click_node, gridSize);
+            }
+        }
+
+        /**
+         * Applies a style preset to a node with a given ID.
+         * @param {String|Number} nodeId  The node ID
+         * @param {String} styleCode      Key from NODE_STYLES
+         */
+        function applyNodeStyle(nodeId, styleCode) {
+            const stylePreset = NODE_STYLES[styleCode];
+            if (!stylePreset) {
+                console.warn(`No style preset found for code "${styleCode}". Skipping...`);
+                return;
+            }
+
+            const circleSelection = d3.selectAll(".node")
+                .filter(d => d.id === nodeId)
+                .select("circle");
+
+            Object.entries(stylePreset).forEach(([attrName, attrValue]) => {
+                circleSelection.attr(attrName, attrValue);
+            });
+        }
+
+        /**
+         * Applies a style preset to a link (by datum).
+         * @param {Object} focusLinkData  The link datum
+         * @param {String} styleCode      Key from LINK_STYLES
+         */
+        function applyLinkStyle(focusLinkData, styleCode) {
+            const stylePreset = LINK_STYLES[styleCode];
+            if (!stylePreset) {
+                console.warn(`No style preset found for code "${styleCode}". Skipping...`);
+                return;
+            }
+
+            const linkSelection = d3.selectAll(".link")
+                .filter(d => d === focusLinkData);
+
+            Object.entries(stylePreset).forEach(([attrName, attrValue]) => {
+                linkSelection.attr(attrName, attrValue);
+            });
+        }
+
+        /**
+         * Example function that repositions a clicked node (and shifts spineheld=1 nodes by +50).
+         */
+        function recalcPositions(clickedNode) {
+            const newX = Math.round(clickedNode.x / 200) * 200;
+            clickedNode.x = newX;
+            clickedNode.fx = newX;
+
+            nodes.forEach(n => {
+                if (n.spineheld === 1) {
+                    const shiftedX = n.x + 50;
+                    n.x = shiftedX;
+                    n.fx = shiftedX;
+                }
+            });
+
+            simulation.alpha(1).restart();
+        }
+
+        /***************************************************************
+         * 2) PAGE SETUP & GLOBAL VARIABLES
+         ***************************************************************/
+        let { svgWidth, svgHeight } = adjustSVGHeight();
+        const svg = d3.select("svg");
+        const g = svg.append("g");
+
+        // Node & link style presets
+        const NODE_STYLES = {
+            selected: {
+                r: 6,
+                "fill-opacity": 1,
+                "stroke": "black",
+                "stroke-width": 4,
+                "stroke-opacity": 1
+            },
+            spine: {
+                r: 6,
+                "fill-opacity": 1,
+                "stroke": "green",
+                "stroke-width": 2,
+                "stroke-opacity": 1
+            },
+            nonspine: {
+                r: 6,
+                "fill-opacity": 1,
+                "stroke": "red",
+                "stroke-width": 2,
+                "stroke-opacity": 0.8
+            },
+            choice_in: {
+                r: 8,
+                "fill-opacity": 1,
+                "stroke": "black",
+                "stroke-width": 6,
+                "stroke-opacity": 0.3,
+                "choice": 1
+            },
+            choice_out: {
+                r: 10,
+                "fill-opacity": 1,
+                "stroke": "yellow",
+                "stroke-width": 6,
+                "stroke-opacity": 0.5,
+                "choice": 1
+            },
+            revealed: {
+                r: 5,
+                "fill-opacity": 0.3,
+                "stroke": "black",
+                "stroke-width": 1,
+                "stroke-opacity": 0.2
+            },
+            pool: {
+                r: 3,
+                "fill-opacity": 0.1,
+                "stroke": "none",
+                "choice": 0
+            }
+        };
+
+        const LINK_STYLES = {
+            spine: {
+                "stroke": "black",
+                "stroke-width": 2,
+                "stroke-opacity": 0.8
+            },
+            spineadjacent: {
+                "stroke": "black",
+                "stroke-width": 5,
+                "stroke-opacity": 0.3
+            },
+            general: {
+                "stroke": "gold",
+                "stroke-width": 5,
+                "stroke-opacity": 0.5
+            },
+            choice_in: {
+                "stroke": "black",
+                "stroke-width": 3,
+                "stroke-opacity": 0.5
+            },
+            choice_out: {
+                "stroke": "gold",
+                "stroke-width": 3,
+                "stroke-opacity": 0.5
+            },
+            pool: {
+                "stroke": "white",
+                "stroke-opacity": 0
+            }
+        };
+
+        // Placeholders for data and force simulation references
+        let nodes, links, simulation;
+        let link, node;
+
+        // For removed data tracking
+        let removedNodes = new Map();
+        let removedLinks = new Map();
+
+        /***************************************************************
+         * 3) LOAD JSON DATA & INITIALIZE THE FORCE SIMULATION
+         ***************************************************************/
+        d3.json("mgpdata.json").then(graphData => {
+            nodes = graphData.nodes;
+            links = graphData.links;
+
+            // Initialize hidden and highlight states
+            nodes.forEach((n, i) => {
+                n.hidden = false;
+                n.year = n.y;
+                n.spine = 0;
+                n.choice = 0;
+                n.spineheld = 0;
+                n.fixedY = svgHeight - ((n.y - 1660) / (2005 - 1660)) * svgHeight;
+                n.fixedY = Math.max(10, Math.min(svgHeight - 10, n.fixedY));
+
+                // Fix the first node in the center
+                if (i === 0) {
+                    n.fx = svgWidth / 2;
+                    n.spine = 1;
+                    n.spineheld = 1;
+                }
+            });
+
+            links.forEach(l => {
+                l.hidden = false;
+                l.highlighted = false;
+                l.highlightColor = null;
+            });
+
+            let linkDistance = 100;
+            let chargeStrength = 0;
+            let collisionRadius = 50;
+
+            // Create the force simulation
+            simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(links).id(d => d.id).distance(linkDistance))
+                .force("charge", d3.forceManyBody().strength(chargeStrength))
+                .force("collision", d3.forceCollide().radius(collisionRadius))
+                .on("tick", ticked);
+            
+
+            // Create link elements
+            link = g.append("g")
+                .attr("class", "links")
+                .selectAll("line")
+                .data(links)
+                .enter()
+                .append("line")
+                .attr("class", "link")
+                .attr("stroke", "red")
+                .attr("stroke-opacity", 0.2)
+                .attr("spineheld", 0);
+
+            // Create node groups
+            node = g.append("g")
+                .attr("class", "nodes")
+                .attr("choice", 0)
+                .selectAll("g")
+                .data(nodes)
+                .enter()
+                .append("g")
+                .attr("class", "node")
+                .attr("fill-opacity", 0.2)
+                .attr("stroke-opacity", 0.2);
+
+            // Drag behavior
+            const drag = d3.drag()
+                .on("start", dragStarted)
+                .on("drag", dragged)
+                .on("end", dragEnded);
+
+            node.call(drag);
+
+            // Append circles to node groups
+            node.append("circle")
+                .attr("r", 5)
+                .attr("fill", d => d.color)
+                .on("mouseover", handleMouseOver)
+                .on("mousemove", handleMouseMove)
+                .on("mouseout", handleMouseOut);
+
+            // Node click
+            node.on("click", handleNodeClick);
+
+            // Node dblclick
+            node.on("dblclick", handleNodeDblClick);
+
+            // Reset formatting when clicking empty space (optional)
+            svg.on("click", () => {
+                // resetFormatting();
+            });
+
+            // Slider input listeners
+            d3.select("#linkDistance").on("input", function () {
+                linkDistance = +this.value;
+                d3.select("#linkDistanceValue").text(linkDistance);
+                simulation.force("link", d3.forceLink(links).id(d => d.id).distance(linkDistance));
+                simulation.alpha(1).restart();
+            });
+
+            d3.select("#chargeStrength").on("input", function () {
+                chargeStrength = +this.value;
+                d3.select("#chargeStrengthValue").text(chargeStrength);
+                simulation.force("charge", d3.forceManyBody().strength(chargeStrength));
+                simulation.alpha(1).restart();
+            });
+
+            d3.select("#collisionRadius").on("input", function () {
+                collisionRadius = +this.value;
+                d3.select("#collisionRadiusValue").text(collisionRadius);
+                simulation.force("collision", d3.forceCollide().radius(collisionRadius));
+                simulation.alpha(1).restart();
+            });
+        }).catch(error => console.error(error));
+
+        /***************************************************************
+         * 4) EVENT HANDLERS
+         ***************************************************************/
+
+        /**
+         * Mouseover event handler to show tooltips.
+         */
+        function handleMouseOver(event, d) {
+            if (d.spineheld === 1 || d.choice == 1) {
+                d3.select(".tooltip")
+                    .style("visibility", "visible")
+                    .style("top", `${event.pageY + 10}px`)
+                    .style("left", `${event.pageX + 10}px`)
+                    .html(`<strong>${d.name}</strong><br>${d.tooltip}`);
+            }
+        }
+
+        /**
+         * Mousemove event handler to move tooltips.
+         */
+        function handleMouseMove(event) {
+            d3.select(".tooltip")
+                .style("top", `${event.pageY + 10}px`)
+                .style("left", `${event.pageX + 10}px`);
+        }
+
+        /**
+         * Mouseout event handler to hide tooltips.
+         */
+        function handleMouseOut() {
+            d3.select(".tooltip").style("visibility", "hidden");
+        }
+
+        /**
+         * Click event handler for nodes.
+         */
+        function handleNodeClick(event, d) {
+            
+
+            if (d.spineheld === 0) {
+                // Possibly re-position node if not yet spineheld
+                setNodeXPosition(d, nodes, links, 200, 20);
+            }
+
+            d.spineheld = 1;
+            resetFormatting();
+            // Append text to node
+            d3.selectAll(".node")
+                .filter(n => n.id === d.id)
+                .append("text")
+                .attr("x", 9)
+                .attr("y", 3)
+                .text(n => n.name)
+                .attr("fill", "black")
+                .attr("fill-opacity", 1)
+                .style("font-size", "12px")
+                .style("font-weight", "bold");
+
+            // Highlight the clicked node
+            d3.selectAll(".node")
+                .filter(n => n.id === d.id)
+                .select("circle")
+                .attr("r", 7)
+                .attr("fill-opacity", 0.898)
+                .attr("stroke-opacity", 1);
+
+            applyNodeStyle(d.id, "selected");
+
+            // Incoming/outgoing highlighting
+            const visitedIncoming = new Set();
+            highlightIncoming(d.id, visitedIncoming);
+
+            const visitedOutgoing = new Set();
+            highlightOutgoing(d.id, visitedOutgoing);
+
+            // Update text box
+            const incomingLinks = links
+                .filter(link => link.target.id === d.id)
+                .map(link => `${link.source.id} (${Math.round(link.source.y)}) (A)`);
+
+            const outgoingLinks = links
+                .filter(link => link.source.id === d.id)
+                .map(link => `${link.target.id} (${Math.round(link.target.y)}) (S)`);
+
+            const textBoxContent = `
+            <strong>Name:</strong> ${d.name}<br>
+            <strong>Year:</strong> ${Math.round(d.year)}<br>
+            <strong>Connected Nodes:</strong> ${[...incomingLinks, ...outgoingLinks].join(' ') || 'None'}<br>
+            <strong>Summary:</strong> ${d.tooltip}
+          `;
+            d3.select("#textBox").html(textBoxContent);
+        }
+
+        /**
+         * Double-click event handler for nodes.
+         */
+        function handleNodeDblClick(event, d) {
+            resetFormatting();
+
+            d.fx = null;
+            d.spineheld = 1;
+
+            d3.selectAll(".node")
+                .filter(n => n.id === d.id)
+                .select("circle")
+                .attr("r", 7)
+                .attr("fill-opacity", 0.2)
+                .attr("stroke-opacity", 0.2);
+
+            d3.selectAll(".node")
+                .filter(n => n.id === d.id)
+                .selectAll("text")
+                .remove();
+
+            const visitedIncoming = new Set();
+            highlightIncomingDbl(d.id, visitedIncoming);
+
+            const visitedOutgoing = new Set();
+            highlightOutgoingDbl(d.id, visitedOutgoing);
+
+            const incomingLinks = links
+                .filter(link => link.target.id === d.id)
+                .map(link => `${link.source.id} (${Math.round(link.source.y)}) (A)`);
+
+            const outgoingLinks = links
+                .filter(link => link.source.id === d.id)
+                .map(link => `${link.target.id} (${Math.round(link.target.y)}) (S)`);
+
+            const textBoxContent = `
+            <strong>Name:</strong> ${d.name}<br>
+            <strong>Year:</strong> ${Math.round(d.year)}<br>
+            <strong>Connected Nodes:</strong> ${[...incomingLinks, ...outgoingLinks].join(' ') || 'None'}<br>
+            <strong>Summary:</strong> ${d.tooltip}
+          `;
+            d3.select("#textBox").html(textBoxContent);
+        }
+
+        /**
+         * Highlights incoming links/nodes on click.
+         */
+        function highlightIncoming(nodeId, visitedIncoming) {
+            if (visitedIncoming.has(nodeId)) return;
+            visitedIncoming.add(nodeId);
+
+            links.forEach(link => {
+                if (link.target.id === nodeId) {
+                    link.highlighted = true;
+                    link.highlightColor = "red";
+                    applyLinkStyle(link, "choice_in");
+
+                    link.source.choice = 1;
+
+                    d3.selectAll(".node")
+                        .filter(n => n.id === link.source.id && link.source.spineheld === 0)
+                        .select("circle")
+                        .attr("r", 10)
+
+                    applyNodeStyle(link.source.id, "choice_in");
+                }
+            });
+        }
+
+        /**
+         * Highlights outgoing links/nodes on click.
+         */
+        function highlightOutgoing(nodeId, visitedOutgoing) {
+            if (visitedOutgoing.has(nodeId)) return;
+            visitedOutgoing.add(nodeId);
+
+            links.forEach(link => {
+                if (link.source.id === nodeId) {
+                    link.highlighted = true;
+                    link.highlightColor = "blue";
+                    if (link.target.spineheld === 0) {
+                        applyLinkStyle(link, "choice_out");
+                    }
+                    link.target.choice = 1;
+
+
+                    d3.selectAll(".node")
+                        .filter(n => n.id === link.target.id && link.target.spineheld === 0)
+
+                    applyNodeStyle(link.target.id, "choice_out");
+                }
+            });
+        }
+
+        /**
+         * Highlights incoming links/nodes on double-click.
+         */
+        function highlightIncomingDbl(nodeId, visitedIncoming) {
+            if (visitedIncoming.has(nodeId)) return;
+            visitedIncoming.add(nodeId);
+
+            links.forEach(link => {
+                if (link.target.id === nodeId) {
+                    link.highlighted = false;
+                    link.highlightColor = "red";
+
+                    d3.selectAll(".node")
+                        .filter(n => n.id === link.source.id)
+                        .select("circle")
+                        .attr("r", 10);
+                }
+            });
+        }
+
+        /**
+         * Highlights outgoing links/nodes on double-click.
+         */
+        function highlightOutgoingDbl(nodeId, visitedOutgoing) {
+            if (visitedOutgoing.has(nodeId)) return;
+            visitedOutgoing.add(nodeId);
+
+            links.forEach(link => {
+                if (link.source.id === nodeId) {
+                    link.highlighted = false;
+                    link.highlightColor = "blue";
+
+                    d3.selectAll(".node")
+                        .filter(n => n.id === link.target.id)
+                        .select("circle")
+                        .attr("r", 10);
+
+                    d3.selectAll(".node")
+                        .filter(n => n.id === link.target.id)
+                        .select("text");
+                }
+            });
+        }
+
+        /**
+         * Reset all formatting, skipping links with both ends spineheld=1.
+         */
+        function resetFormatting() {
+            links.forEach(l => {
+                if (l.source.spineheld === 1 && l.target.spineheld === 1) {
+                    applyLinkStyle(l, "spine");
+
+                }
+                if (l.source.spineheld === 0 || l.target.spineheld === 0){
+                    applyLinkStyle(l, "pool");
+                    //l.highlighted = false;
+                    //l.highlightColor = null;
+
+                }
+            });
+
+            d3.selectAll(".link")
+                .filter(l => ((l.source.spineheld === 0 || l.target.spineheld === 0)))
+                .attr("stroke", "green");
+
+
+            nodes.forEach(resetnode => {
+                if (resetnode.spineheld === 0) {
+                    applyNodeStyle(resetnode.id, "pool");
+                }
+                if (resetnode.spineheld === 1) {
+                    applyNodeStyle(resetnode.id, "selected");
+                }
+            });
+
+            // Example of commented-out code left intact:
+            // d3.selectAll(".link").attr("stroke-opacity", 0);
+            // d3.selectAll(".node circle").attr("stroke", "none");
+        }
+
+        /***************************************************************
+         * 5) DRAG & TICK HANDLERS
+         ***************************************************************/
+
+        function dragStarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x; // Fix x for dragging
+        }
+
+        function dragged(event, d) {
+            d.fx = Math.max(10, Math.min(svgWidth - 10, event.x));
+            d.x = d.fx;
+        }
+
+        function dragEnded(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = d.x;
+            d.fx = Math.round(d.x / 200) * 200;
+        }
+
+        /**
+         * The simulation's "tick" handler for positioning.
+         */
+        function ticked() {
+            // Constrain each node's x within the SVG width
+            nodes.forEach(d => {
+                d.x = Math.max(10, Math.min(svgWidth - 10, d.x));
+            });
+
+            link
+                .attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.fixedY)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.fixedY)
+                // .attr("stroke", d => d.highlighted ? d.highlightColor : "#999") // commented from original
+                // .attr("stroke-width", d => d.highlighted ? 3 : 1.5)
+                // .attr("stroke-opacity", d => d.highlighted ? 1 : 0.2);
+
+            node
+                .attr("transform", d => `translate(${d.x},${d.fixedY})`);
+        }
+
+        /***************************************************************
+         * 6) REMOVE/RESTORE DESCENDANTS & RESTART SIM
+         ***************************************************************/
+
+        function removeDescendants(node) {
+            const descendants = new Set();
+            const linksToRemove = [];
+            const nodesToRemove = [];
+
+            function findDescendants(nodeId) {
+                links.forEach(link => {
+                    if (link.source.id === nodeId) {
+                        descendants.add(link.target.id);
+                        linksToRemove.push(link);
+                        findDescendants(link.target.id);
+                    }
+                });
+            }
+
+            findDescendants(node.id);
+
+            descendants.forEach(descendantId => {
+                const descendantNode = nodes.find(n => n.id === descendantId);
+                if (descendantNode) nodesToRemove.push(descendantNode);
+            });
+
+            removedNodes.set(node.id, nodesToRemove);
+            removedLinks.set(node.id, linksToRemove);
+
+            nodes.splice(0, nodes.length, ...nodes.filter(n => !descendants.has(n.id)));
+            links.splice(0, links.length, ...links.filter(l => !linksToRemove.includes(l)));
+        }
+
+        function restoreDescendants(node) {
+            const nodesToRestore = removedNodes.get(node.id) || [];
+            const linksToRestore = removedLinks.get(node.id) || [];
+
+            nodes.push(...nodesToRestore);
+            links.push(...linksToRestore);
+
+            removedNodes.delete(node.id);
+            removedLinks.delete(node.id);
+        }
+
+        function restartSimulation() {
+            link = g.selectAll(".link")
+                .data(links, d => `${d.source.id}-${d.target.id}`);
+            link.exit().remove();
+            link.enter()
+                .append("line")
+                .attr("class", "link")
+                .merge(link);
+
+            node = g.selectAll(".node")
+                .data(nodes, d => d.id);
+            node.exit().remove();
+
+            const nodeEnter = node.enter()
+                .append("g")
+                .attr("class", "node")
+                .call(d3.drag()
+                    .on("start", dragStarted)
+                    .on("drag", dragged)
+                    .on("end", dragEnded)
+                );
+
+            nodeEnter.append("circle")
+                .attr("r", 5)
+                .attr("fill", d => d.color);
+
+            node = nodeEnter.merge(node);
+
+            simulation.nodes(nodes);
+            simulation.force("link").links(links);
+            simulation.alpha(1).restart();
+        }
+    </script>
+</body>
+</html>
