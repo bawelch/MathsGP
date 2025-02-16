@@ -3,13 +3,22 @@
  ***************************************************************/
 
 import appConfig from './config.js';
-import { link, node, links, nodes, simulation } from './main.js';
+import { link, node, links, nodes, simulation,g,playState } from './main.js';
+import { applyNodeStyle, applyLinkStyle } from "./styleUtils.js"; // Import styling functions
 
 export default function initSimulation(nodes, links) {
   // This is your default distance, charge, collision, etc.
   const linkDistance = 5;
   const chargeStrength = -5;
   const collisionRadius = 10;
+
+  const nodeScale = 100;
+  const linkScale = 100;
+  const fontScale = 100;
+  const clickGridWidth = 200;
+  const clickSnapWidth = 100;
+  const clickYearBuffer = 42;
+
 
   const sim = d3.forceSimulation(nodes)
     .force("link", d3.forceLink(links).id(d => d.id).distance(linkDistance))
@@ -84,35 +93,28 @@ function ticked() {
             removedLinks.delete(node.id);
         }
 
-        function restartSimulation() {
-            link = g.selectAll(".link")
-                .data(links, d => `${d.source.id}-${d.target.id}`);
-            link.exit().remove();
-            link.enter()
-                .append("line")
-                .attr("class", "link")
-                .merge(link);
+export function restartSimulation() {
+    
+        // Remove any text labels attached to nodes
+    d3.selectAll(".node text").remove();
 
-            node = g.selectAll(".node")
-                .data(nodes, d => d.id);
-            node.exit().remove();
+    // Reset all nodes to "pool" style
+    nodes.forEach(n => {
+        applyNodeStyle(n.id, "pool")
+        n.spineheld=0;
+        n.netheld=0;
+        n.fx=null;
 
-            const nodeEnter = node.enter()
-                .append("g")
-                .attr("class", "node")
-                .call(d3.drag()
-                    .on("start", dragStarted)
-                    .on("drag", dragged)
-                    .on("end", dragEnded)
-                );
+    });
 
-            nodeEnter.append("circle")
-                .attr("r", 5)
-                .attr("fill", d => d.color);
+    // Reset all links to "pool" style
+    links.forEach(l => {
+        applyLinkStyle(l, "pool")
+    });
 
-            node = nodeEnter.merge(node);
 
-            simulation.nodes(nodes);
-            simulation.force("link").links(links);
-            simulation.alpha(1).restart();
-        }
+    // Restart the simulation
+    simulation.nodes(nodes);
+    simulation.force("link").links(links);
+    simulation.alpha(1).restart();
+}

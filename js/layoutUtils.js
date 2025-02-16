@@ -6,6 +6,8 @@
  ***************************************************************/
 console.log("LayoutUtils loaded!");
 import appConfig from "./config.js";
+import { link, node, links, nodes, simulation, sourceId, targetId, g, playState } from './main.js';
+import {handleMouseOver, handleMouseMove, handleMouseOut, handleNodeClick, handleNodeDblClick, dragStarted, dragged, dragEnded} from './eventHandlers.js';
 
 
 /**
@@ -45,6 +47,49 @@ function snapToGrid(node, gridSize) {
   node.x = newX;
   node.fx = newX;
 }
+
+
+export function propagateClickFromHighestYear() {
+    // Step 1: Find the node with highest year AND netheld = 1
+    const highestYearNode = nodes
+        .filter(n => n.netheld === 1)
+        .reduce((maxNode, currentNode) => (currentNode.year > (maxNode?.year || -Infinity) ? currentNode : maxNode), null);
+
+    if (!highestYearNode) {
+        console.warn("No nodes found with netheld = 1");
+        return;
+    }
+
+    console.log(`Starting propagation from node ${highestYearNode.id} (Year: ${highestYearNode.year})`);
+
+    // Step 2: Simulate click event on the highest year node
+    handleNodeClick(null, highestYearNode);
+
+    // Step 3: Propagate click to all `netheld = 1` nodes via parent nodes
+    const visitedNodes = new Set(); // Track visited nodes
+
+    function propagateClick(node) {
+        if (!node || visitedNodes.has(node.id)) return; // Avoid re-processing
+        visitedNodes.add(node.id);
+
+        // Run the click event on this node
+        handleNodeClick(null, node);
+
+        // Find parent nodes (incoming links)
+        const parentNodes = links
+            .filter(link => link.target.id === node.id)
+            .map(link => link.source)
+            .filter(parent => parent.netheld === 1);
+
+        // Recursively propagate the click event
+        parentNodes.forEach(propagateClick);
+    }
+
+    // Start propagation from the highest year node
+    propagateClick(highestYearNode);
+}
+
+
 
 /**
  * Basic version: finds an X that doesn't conflict with any held node

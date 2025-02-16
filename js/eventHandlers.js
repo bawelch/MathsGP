@@ -1,9 +1,12 @@
-  /***************************************************************
+import { applyNodeStyle, applyLinkStyle, applyNodeTextStyle } from "./styleUtils.js"; // Import styling functions
+import state_data from './config.js';
+
+/***************************************************************
          * 4) EVENT HANDLERS
          ***************************************************************/
         //test
         import appConfig from './config.js';
-        import { link, node, links, nodes, simulation, sourceId, targetId } from './main.js';
+        import { link, node, links, nodes, simulation, sourceId, targetId, g, playState } from './main.js';
         import { setNodeXPosition } from './layoutUtils.js';
 
         /**
@@ -38,9 +41,25 @@
         /**
          * Click event handler for nodes.
          */
-        export function handleNodeClick(event, d) {
-            
 
+        export function displaySpine(event, mode) {
+                        // Incoming/outgoing highlighting
+            if (mode === 0) {
+                const visitedAllIncoming = new Set();
+                highlightAllIncoming(playState.held_node, visitedAllIncoming);
+            }
+            else if (mode === 1) {
+                const visitedAllOutgoing = new Set();
+                highlightAllOutgoing(playState.held_node, visitedAllOutgoing);
+            }
+            else if (mode ===2) {
+
+            }
+        }
+
+        export function handleNodeClick(event, d) {
+            d.netheld = 1;
+            playState.held_node = d.id;
             if (d.spineheld === 0) {
                 // Possibly re-position node if not yet spineheld
                 setNodeXPosition(d, nodes, links, 200, 20);
@@ -98,46 +117,49 @@
         /**
          * Double-click event handler for nodes.
          */
-        export function handleNodeDblClick(event, d) {
-            resetFormatting();
+export function handleNodeDblClick(event, d) {
+    resetFormatting();
 
-            d.fx = null;
-            d.spineheld = 1;
+    // Reset node's fixed position & status
+    d.fx = null;
+    d.spineheld = 0;
+    d.netheld = 0;
 
-            d3.selectAll(".node")
-                .filter(n => n.id === d.id)
-                .select("circle")
-                .attr("r", 7)
-                .attr("fill-opacity", 0.2)
-                .attr("stroke-opacity", 0.2);
+    // Select and update the clicked node's circle
+    d3.selectAll(".node")
+        .filter(n => n.id === d.id)
+        .select("circle")
+        .attr("r", 7)  // Reset size
+        .attr("fill-opacity", 0.2)
+        .attr("stroke-opacity", 0.2);
 
-            d3.selectAll(".node")
-                .filter(n => n.id === d.id)
-                .selectAll("text")
-                .remove();
+    // Apply the default "pool" style to the node
+    applyNodeStyle(d.id, "pool");
 
-            const visitedIncoming = new Set();
-            highlightIncomingDbl(d.id, visitedIncoming);
+    // Remove any attached text
+    d3.selectAll(".node")
+        .filter(n => n.id === d.id)
+        .selectAll("text")
+        .remove();
 
-            const visitedOutgoing = new Set();
-            highlightOutgoingDbl(d.id, visitedOutgoing);
+    // Find and reset incoming links
+    links
+        .filter(link => link.target.id === d.id)
+        .forEach(link => {
+            applyLinkStyle(link, "pool");
+        });
 
-            const incomingLinks = links
-                .filter(link => link.target.id === d.id)
-                .map(link => `${link.source.id} (${Math.round(link.source.y)}) (A)`);
+    // Find and reset outgoing links
+    links
+        .filter(link => link.source.id === d.id)
+        .forEach(link => {
+            applyLinkStyle(link, "pool");
+        });
 
-            const outgoingLinks = links
-                .filter(link => link.source.id === d.id)
-                .map(link => `${link.target.id} (${Math.round(link.target.y)}) (S)`);
+    // Clear text box content
+    d3.select("#textBox").html("");
+}
 
-            const textBoxContent = `
-            <strong>Name:</strong> ${d.name}<br>
-            <strong>Year:</strong> ${Math.round(d.year)}<br>
-            <strong>Connected Nodes:</strong> ${[...incomingLinks, ...outgoingLinks].join(' ') || 'None'}<br>
-            <strong>Summary:</strong> ${d.tooltip}
-          `;
-            d3.select("#textBox").html(textBoxContent);
-        }
 
         /**
          * Highlights incoming links/nodes on click.
@@ -150,18 +172,58 @@
                 if (link.target.id === nodeId) {
                     link.highlighted = true;
                     link.highlightColor = "red";
-                    applyLinkStyle(link, "choice_in");
+                    //applyLinkStyle(link, "choice_in");
+
+                    link.source.choice = 1;
+
+                    if (link.source.spineheld === 0) {
+                        applyLinkStyle(link, "choice_in");
+                        applyNodeStyle(link.source.id, "choice_in");
+                    }
+                    else {
+                        applyLinkStyle(link, "held_in");
+                        applyNodeStyle(link.source.id, "held_in");
+
+                    }
+
+
+
+                }
+            });
+        }
+
+
+        function highlightAllIncoming(nodeId, visitedAllIncoming) {
+            if (visitedAllIncoming.has(nodeId)) return;
+            visitedAllIncoming.add(nodeId);
+
+            links.forEach(link => {
+                if (link.target.id === nodeId) {
+                    //link.highlighted = true;
+                    //link.highlightColor = "red";
+                    applyLinkStyle(link, "spine");
 
                     link.source.choice = 1;
 
                     d3.selectAll(".node")
-                        .filter(n => n.id === link.source.id && link.source.spineheld === 0)
+                        .filter(n => n.id === link.source.id && n.spineheld === 0)
                         .select("circle")
                         .attr("r", 10)
 
-                    applyNodeStyle(link.source.id, "choice_in");
+
+
+                    if (link.source.spineheld === 0) {
+                        applyNodeStyle(link.source.id, "spine");
+                        applyNodeTextStyle(link.source.id, "spine");
+                    }
+                    link.source.netheld =1;
+                                    //// Recursively highlight incoming nodes
+                    highlightAllIncoming(link.source.id, visitedAllIncoming);
                 }
+
             });
+
+
         }
 
         /**
@@ -175,8 +237,39 @@
                 if (link.source.id === nodeId) {
                     link.highlighted = true;
                     link.highlightColor = "blue";
+
+                    link.target.choice = 1;
+
+
+                    //d3.selectAll(".node")
+                    //    .filter(n => n.id === link.target.id)
+
+
                     if (link.target.spineheld === 0) {
                         applyLinkStyle(link, "choice_out");
+                        applyNodeStyle(link.target.id, "choice_out");
+                    }
+                    else {
+                        applyLinkStyle(link, "held_out");
+                        applyNodeStyle(link.target.id, "held_out");
+
+                    }
+
+                    //applyNodeStyle(link.target.id, "choice_out");
+
+                }
+            });
+        }
+        function highlightAllOutgoing(nodeId, visitedAllOutgoing) {
+            if (visitedAllOutgoing.has(nodeId)) return;
+            visitedAllOutgoing.add(nodeId);
+
+            links.forEach(link => {
+                if (link.source.id === nodeId) {
+                    link.highlighted = true;
+                    link.highlightColor = "blue";
+                    if (link.target.spineheld === 0) {
+                        applyLinkStyle(link, "spine");
                     }
                     link.target.choice = 1;
 
@@ -184,11 +277,16 @@
                     d3.selectAll(".node")
                         .filter(n => n.id === link.target.id && link.target.spineheld === 0)
 
-                    applyNodeStyle(link.target.id, "choice_out");
+                    applyNodeStyle(link.target.id, "spine");
+                    link.target.netheld=1;
+                                    //// Recursively highlight incoming nodes
+                highlightAllOutgoing(link.target.id, visitedAllOutgoing);
                 }
-            });
-        }
 
+            });
+
+
+        }
         /**
          * Highlights incoming links/nodes on double-click.
          */
@@ -242,7 +340,11 @@
                     applyLinkStyle(l, "spine");
 
                 }
-                if (l.source.spineheld === 0 || l.target.spineheld === 0){
+                else if (l.source.netheld === 1 && l.target.netheld === 1) {
+                    applyLinkStyle(l, "spine");
+
+                }
+                else if (l.source.spineheld === 0 || l.target.spineheld === 0){
                     applyLinkStyle(l, "pool");
                     //l.highlighted = false;
                     //l.highlightColor = null;
@@ -250,9 +352,9 @@
                 }
             });
 
-            d3.selectAll(".link")
-                .filter(l => ((l.source.spineheld === 0 || l.target.spineheld === 0)))
-                .attr("stroke", "green");
+            //d3.selectAll(".link")
+                //.filter(l => ((l.source.spineheld === 0 || l.target.spineheld === 0)))
+                //.attr("stroke", "green");
 
 
             nodes.forEach(resetnode => {
@@ -262,11 +364,14 @@
                 else if (resetnode.id === targetId) {
                     applyNodeStyle(resetnode.id, "target");
                 }
-                else if (resetnode.spineheld === 0) {
-                    applyNodeStyle(resetnode.id, "pool");
-                }
                 else if (resetnode.spineheld === 1) {
                     applyNodeStyle(resetnode.id, "selected");
+                }
+                else if (resetnode.netheld === 1) {
+                    applyNodeStyle(resetnode.id, "spine");
+                }
+                else {
+                    applyNodeStyle(resetnode.id, "pool");
                 }
             });
 
@@ -295,5 +400,5 @@
         export function dragEnded(event, d) {
             if (!event.active) simulation.alphaTarget(0);
             d.fx = d.x;
-            d.fx = Math.round(d.x / 200) * 200;
+            d.fx = Math.round(d.x / 100) * 100;
         }

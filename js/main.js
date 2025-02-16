@@ -5,14 +5,22 @@
 import initSimulation from './forceSimulation.js';
 import {handleMouseOver, handleMouseMove, handleMouseOut, handleNodeClick, handleNodeDblClick, dragStarted, dragged, dragEnded} from './eventHandlers.js';
 import { updateChoiceButton, createDynamicButton, toggleButton, repositionButton } from './choiceButtons.js';
+import { restartSimulation } from './forceSimulation.js';  
+import { displaySpine } from './eventHandlers.js';  
+import { searchNodes } from './searchUtils.js';  
+import { applyGlobalNodeScale } from './styleUtils.js';  
+import { propagateClickFromHighestYear } from './layoutUtils.js';  
+
+
 
 // Some global references, or use closures:
 let svg, g;
 let nodes, links;
 let link, node;
 let simulation;
+let playState = {held_node:1};
 
-export { link, node, links, nodes, simulation };
+export { link, node, links, nodes, simulation,g, playState };
 
 // For removed data tracking
 let removedNodes = new Map();
@@ -20,74 +28,50 @@ let removedLinks = new Map();
 
 // Hardcoded source/target for the example
 const sourceId = 1;
-const targetId = 13;
+const targetId = 16;
 
 export {sourceId, targetId};
 import { adjustSVGHeight } from "./layoutUtils.js";
 // Once the DOM is loaded, run the main
 document.addEventListener("DOMContentLoaded", function() {
-  
-    const container = document.createElement("div");
-    container.classList.add("choice-container");
-    container.style.width = "300px";
-    container.style.height = "200px";
-    container.style.border = "2px solid black";
-    container.style.padding = "10px";
-    container.style.display = "flex";
-    container.style.flexDirection = "column";
-    container.style.alignItems = "center";
-    container.style.justifyContent = "space-between";
-    container.style.backgroundColor = "#f9f9f9";
-    container.style.position = "relative";
+     // Event Listener for search input
+    let searchInput = document.getElementById("nodeSearch");
+    const searchResults = document.getElementById("searchResults");
+    searchInput.addEventListener("input", (e) => {
+        searchNodes(e.target.value, searchInput)
+        });
+  // 1) Adjust the SVG height
+  const { svgWidth, svgHeight } = adjustSVGHeight(document);
 
-    // Add textboxes
-    for (let i = 1; i <= 3; i++) {
-        const textBox = document.createElement("div");
-        textBox.id = `textbox${i}`;
-        textBox.classList.add("textbox");
-        textBox.textContent = `Text ${i}`;
-        textBox.style.width = "90%";
-        textBox.style.height = "30px";
-        textBox.style.border = "1px solid #ccc";
-        textBox.style.padding = "5px";
-        textBox.style.textAlign = "center";
-        textBox.style.backgroundColor = "white";
-        textBox.style.fontSize = "14px";
-        container.appendChild(textBox);
-    }
+    const button_buffer = -100
+    const button_count = 4
+      // Create dynamic buttons
+    //createDynamicButton("Reset", svgWidth/(button_count+1), svgHeight - button_buffer, 200, 50);
+    createDynamicButton("Reset Simulation", svgWidth/(button_count+1), svgHeight - button_buffer, 200, 50, true, () => {
+        console.log("Simulation Reset Triggered");
+        restartSimulation();
+        });
 
-    // Add update button
-    const updateBtn = document.createElement("button");
-    updateBtn.id = "updateChoiceButton";
-    updateBtn.classList.add("update-btn");
-    updateBtn.textContent = "Update";
-    updateBtn.style.width = "100px";
-    updateBtn.style.padding = "5px";
-    updateBtn.style.marginTop = "10px";
-    updateBtn.style.cursor = "pointer";
-    updateBtn.style.backgroundColor = "blue";
-    updateBtn.style.color = "white";
-    updateBtn.style.border = "none";
-    updateBtn.style.borderRadius = "5px";
-    updateBtn.addEventListener("click", updateChoiceButton);
+    createDynamicButton("Add Ancestors", 2*svgWidth/(button_count+1), svgHeight - button_buffer, 200,50, true, () => {
+        console.log("Add Ancestors Triggered");
+        displaySpine(event, 0);
+        });
 
-    container.appendChild(updateBtn);
-    document.body.appendChild(container);
-
-    // Create dynamic buttons
-    createDynamicButton("Button 1", 350, 50);
-    createDynamicButton("Button 2", 350, 100, false);
-    createDynamicButton("Button 3", 350, 150);
-    createDynamicButton("Button 4", 350, 200);
-    createDynamicButton("Button 5", 350, 250);
+    createDynamicButton("Add Descendents", 3*svgWidth/(button_count+1), svgHeight - button_buffer,200,50, true, () => {
+        console.log("Add Ancestors Triggered");
+        displaySpine(event, 1);
+        });
+    createDynamicButton("Lock to Grid", 4*svgWidth/(button_count+1), svgHeight - button_buffer,200,50, true, () => {
+        console.log("Gridlock Triggered");
+        propagateClickFromHighestYear();
+        });
+    //createDynamicButton("Button 5", 350, svgHeight - 100);
 
     // Toggle Button Example
-    setTimeout(() => toggleButton(1, true), 3000); // Activate Button 2 after 3 seconds
-    setTimeout(() => repositionButton(2, 400, 120), 5000); // Move Button 3 after 5 seconds
-    
-    
-    // 1) Adjust the SVG height
-  const { svgWidth, svgHeight } = adjustSVGHeight(document);
+    //setTimeout(() => toggleButton(1, true), 3000); // Activate Button 2 after 3 seconds
+    //setTimeout(() => repositionButton(2, 400, 120), 5000); // Move Button 3 after 5 seconds
+
+
 
   //const tempsvgw = appConfig.svgHeight
 
@@ -97,7 +81,7 @@ document.addEventListener("DOMContentLoaded", function() {
   g = svg.append("g");
 
   // 3) Load data
-  d3.json("mgpdata.json").then(graphData => {
+  d3.json("data/mgpxdata.json").then(graphData => {
     nodes = graphData.nodes;
     links = graphData.links;
 
@@ -156,8 +140,9 @@ document.addEventListener("DOMContentLoaded", function() {
       .enter()
       .append("line")
       .attr("class", "link")
-      .attr("stroke", "red")
-      .attr("stroke-opacity", 0.1)
+      .attr("stroke", "black")
+      .attr("stroke-opacity", 0.05)
+      .attr("stroke-width", 1)
       .attr("spineheld", 0);
 
     // 6) Create node groups
@@ -169,6 +154,7 @@ document.addEventListener("DOMContentLoaded", function() {
       .enter()
       .append("g")
       .attr("r", 5)
+      .attr("baser", 5)
       .attr("class", "node")
       .attr("fill-opacity", 0.2)
       .attr("stroke-opacity", 0.2);
@@ -221,6 +207,49 @@ document.addEventListener("DOMContentLoaded", function() {
       simulation.force("collision", d3.forceCollide().radius(collisionRadius));
       simulation.alpha(1).restart();
     });
+
+    d3.select("#nodeScale").on("input", function() {
+      let nodeScale = +this.value;
+      d3.select("#nodeScaleValue").text(nodeScale);
+      applyGlobalNodeScale(nodeScale);
+      simulation.alpha(1).restart();
+    });
+
+    d3.select("#linkScale").on("input", function() {
+      let linkScale = +this.value;
+      d3.select("#linkScaleValue").text(linkScale);
+      //simulation.force("charge", d3.forceManyBody().strength(chargeStrength));
+      //simulation.alpha(1).restart();
+    });
+
+    d3.select("#fontScale").on("input", function() {
+      let fontScale = +this.value;
+      d3.select("#fontScaleValue").text(fontScale);
+      //simulation.force("collision", d3.forceCollide().radius(collisionRadius));
+      //simulation.alpha(1).restart();
+    });
+
+    d3.select("#clickGridWidth").on("input", function() {
+      let clickGridWidth = +this.value;
+      d3.select("#clickGridWidthValue").text(clickGridWidth);
+      //simulation.force("link", d3.forceLink(links).id(d => d.id).distance(linkDistance));
+      //simulation.alpha(1).restart();
+    });
+
+    d3.select("#snapGridWidth").on("input", function() {
+      let snapGridWidth = +this.value;
+      d3.select("#chargeStrengthValue").text(snapGridWidth);
+      //simulation.force("charge", d3.forceManyBody().strength(chargeStrength));
+      //simulation.alpha(1).restart();
+    });
+
+    d3.select("#clickYearBuffer").on("input", function() {
+      let clickYearBuffer = +this.value;
+      d3.select("#clickYearBufferValue").text(clickYearBuffer);
+      //simulation.force("collision", d3.forceCollide().radius(collisionRadius));
+      //simulation.alpha(1).restart();
+    });
+
   })
   .catch(error => console.error(error));
 });

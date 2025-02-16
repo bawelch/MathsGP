@@ -1,0 +1,44 @@
+        const container = document.createElement("div");
+    container.classList.add("choice-container");
+    container.style.width = "300px";
+    container.style.height = "200px";
+    container.style.border = "2px solid black";
+    container.style.padding = "10px";
+    container.style.display = "flex";
+    container.style.flexDirection = "column";
+    container.style.alignItems = "center";
+    container.style.justifyContent = "space-between";
+    container.style.backgroundColor = "#f9f9f9";
+    container.style.position = "relative";// Add textboxes
+    //for (let i = 1; i <= 3; i++) {
+        const textBox = document.createElement("div");
+        textBox.id = `textbox${i}`;
+        textBox.classList.add("textbox");
+        textBox.textContent = `Text ${i}`;
+        textBox.style.width = "90%";
+        textBox.style.height = "30px";
+        textBox.style.border = "1px solid #ccc";
+        textBox.style.padding = "5px";
+        textBox.style.textAlign = "center";
+        textBox.style.backgroundColor = "white";
+        textBox.style.fontSize = "14px";
+        container.appendChild(textBox);
+    }
+
+    // Add update button
+    const updateBtn = document.createElement("button");
+    updateBtn.id = "updateChoiceButton";
+    updateBtn.classList.add("update-btn");
+    updateBtn.textContent = "Update";
+    updateBtn.style.width = "100px";
+    updateBtn.style.padding = "5px";
+    updateBtn.style.marginTop = "10px";
+    updateBtn.style.cursor = "pointer";
+    updateBtn.style.backgroundColor = "blue";
+    updateBtn.style.color = "white";
+    updateBtn.style.border = "none";
+    updateBtn.style.borderRadius = "5px";
+    updateBtn.addEventListener("click", updateChoiceButton);
+
+    container.appendChild(updateBtn);
+    document.body.appendChild(container);
