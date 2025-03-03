@@ -1,5 +1,6 @@
 import { applyNodeStyle, applyLinkStyle, applyNodeTextStyle } from "./styleUtils.js"; // Import styling functions
 import state_data from './config.js';
+export {linkDistance, chargeStrength, collisionRadius, nodeScale, linkScale, fontScale, clickGridWidth, snapGridWidth, clickYearBuffer} from './main.js';
 
 /***************************************************************
          * 4) EVENT HANDLERS
@@ -62,12 +63,18 @@ import state_data from './config.js';
             playState.held_node = d.id;
             if (d.spineheld === 0) {
                 // Possibly re-position node if not yet spineheld
-                setNodeXPosition(d, nodes, links, 200, 20);
+                setNodeXPosition(d, nodes, links, 200, 5);
             }
 
             d.spineheld = 1;
             resetFormatting();
             // Append text to node
+
+            d3.selectAll(".node")
+            .filter(n => n.id === d.id)
+            .selectAll("text")
+            .remove();
+
             d3.selectAll(".node")
                 .filter(n => n.id === d.id)
                 .append("text")
@@ -76,7 +83,7 @@ import state_data from './config.js';
                 .text(n => `${n.name} ${n.visitCount}`)
                 .attr("fill", "black")
                 .attr("fill-opacity", 1)
-                .style("font-size", "12px")
+                .style("font-size", "10px")
                 .style("font-weight", "bold");
 
             // Highlight the clicked node
@@ -400,5 +407,5 @@ export function handleNodeDblClick(event, d) {
         export function dragEnded(event, d) {
             if (!event.active) simulation.alphaTarget(0);
             d.fx = d.x;
-            d.fx = Math.round(d.x / 100) * 100;
+            d.fx = Math.round(d.x / 50) * 50;
         }

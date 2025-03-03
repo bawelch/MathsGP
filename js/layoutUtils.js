@@ -7,6 +7,8 @@
 console.log("LayoutUtils loaded!");
 import appConfig from "./config.js";
 import { link, node, links, nodes, simulation, sourceId, targetId, g, playState } from './main.js';
+export {linkDistance, chargeStrength, collisionRadius, nodeScale, linkScale, fontScale, clickGridWidth, snapGridWidth, clickYearBuffer} from './main.js';
+
 import {handleMouseOver, handleMouseMove, handleMouseOut, handleNodeClick, handleNodeDblClick, dragStarted, dragged, dragEnded} from './eventHandlers.js';
 
 
@@ -20,8 +22,8 @@ export function adjustSVGHeight(document) {
     // Handle case where the controls container does not exist
     const controlsHeight = controlsContainer ? controlsContainer.offsetHeight : 0;
   const svgWidth = window.innerWidth;
-  const baseBufferHeight = 50;
-  const svgHeight = window.innerHeight - controlsHeight- controlsHeight - baseBufferHeight;
+  const baseBufferHeight = 10;
+  const svgHeight = window.innerHeight - controlsHeight- baseBufferHeight;
 
   appConfig.svgWidth = svgWidth;
   appConfig.svgHeight = svgHeight;

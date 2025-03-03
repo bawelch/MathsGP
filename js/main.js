@@ -21,6 +21,7 @@ let simulation;
 let playState = {held_node:1};
 
 export { link, node, links, nodes, simulation,g, playState };
+export {linkDistance, chargeStrength, collisionRadius, nodeScale, linkScale, fontScale, clickGridWidth, snapGridWidth, clickYearBuffer};
 
 // For removed data tracking
 let removedNodes = new Map();
@@ -29,6 +30,18 @@ let removedLinks = new Map();
 // Hardcoded source/target for the example
 const sourceId = 1;
 const targetId = 16;
+
+const linkDistance = 5;
+const chargeStrength = -5;
+const collisionRadius = 10;
+
+const nodeScale = 100;
+const linkScale = 100;
+const fontScale = 100;
+const clickGridWidth = 200;
+const snapGridWidth = 100;
+const clickYearBuffer = 42;
+
 
 export {sourceId, targetId};
 import { adjustSVGHeight } from "./layoutUtils.js";
@@ -92,7 +105,7 @@ document.addEventListener("DOMContentLoaded", function() {
       n.spine = 0;
       n.choice = 0;
       n.spineheld = 0;
-      n.fixedY = svgHeight - ((n.y - 1600) / (2005 - 1600)) * svgHeight;
+      n.fixedY = svgHeight - ((n.y - 1550) / (2025 - 1550)) * svgHeight;
       n.fixedY = Math.max(10, Math.min(svgHeight - 10, n.fixedY));
 
       // Hardcoded example: fix source & target in center
@@ -232,13 +245,14 @@ document.addEventListener("DOMContentLoaded", function() {
     d3.select("#clickGridWidth").on("input", function() {
       let clickGridWidth = +this.value;
       d3.select("#clickGridWidthValue").text(clickGridWidth);
+
       //simulation.force("link", d3.forceLink(links).id(d => d.id).distance(linkDistance));
       //simulation.alpha(1).restart();
     });
 
     d3.select("#snapGridWidth").on("input", function() {
       let snapGridWidth = +this.value;
-      d3.select("#chargeStrengthValue").text(snapGridWidth);
+      d3.select("#snapGridWidthValue").text(snapGridWidth);
       //simulation.force("charge", d3.forceManyBody().strength(chargeStrength));
       //simulation.alpha(1).restart();
     });
