@@ -1,19 +1,304 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MGP Explorer</title>
-    <link rel="stylesheet" href="styles.css">
+    <meta charset="UTF-8" />
+    <title>MGPX</title>
+
+    <!-- External CSS -->
+    <link rel="stylesheet" href="mgpxstyles.css" />
+
+    <!-- D3 Library -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <!-- JS Files (load in this order if using global functions) -->
+
+    <script type="module" src="/js/config.js"></script>
+    <script type="module" src="/js/layoutUtils.js"></script>
+
+    <script src="js/graphUtils.js"></script>
+    <script type="module" src="js/searchUtils.js"></script>
+    <script type="module" src="js/styleUtils.js"></script>
+    <script type="module" src="js/forceSimulation.js"></script>
+    <script type="module" src="js/eventHandlers.js"></script>
+    <script type="module" src="js/choiceButtons.js"></script>
+    <script type="module" src="js/main.js"></script>
+
+
+
+
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .link {
+            /*stroke: #999;*/
+        }
+
+        .node circle {
+            /*stroke: #555;
+        stroke-width: 1.5px;*/
+        }
+
+        .node text {
+            font-size: 10px;
+            font-family: sans-serif;
+        }
+
+        .tooltip {
+            position: absolute;
+            background-color: white;
+            border: 1px solid #ccc;
+            padding: 5px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-family: sans-serif;
+            pointer-events: none;
+            visibility: hidden;
+        }
+
+        .controls-container {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            border-bottom: 1px solid #ddd;
+            box-sizing: border-box;
+        }
+
+        .controls {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: sans-serif;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+
+        .choicebutton {
+            background: rgba(40100, 255, 255, 0.9);
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: sans-serif;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+
+        .text-box {
+            margin-left: 10px;
+            flex-grow: 1;
+            background: rgba(245, 245, 245, 1);
+            border: 1px solid #ddd;
+            padding: 10px;
+            font-family: sans-serif;
+            font-size: 12px;
+            line-height: 1.5;
+            border-radius: 5px;
+            height: fit-content;
+            box-sizing: border-box;
+        }
+        /* Main container */
+        .choice-container {
+            width: 300px; /* Replace with N */
+            height: 200px; /* Replace with M */
+            border: 2px solid black;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            background-color: #f9f9f9;
+            position: relative;
+        }
+
+        /* Textboxes */
+        .choice-textbox {
+            width: 90%;
+            height: 30px;
+            border: 1px solid #ccc;
+            padding: 5px;
+            text-align: center;
+            background-color: white;
+            font-size: 14px;
+        }
+
+        /* Update button */
+        .update-btn {
+            width: 100px;
+            padding: 5px;
+            margin-top: 10px;
+            cursor: pointer;
+            background-color: blue;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+
+        /* Dynamic buttons */
+        .dynamic-btn {
+            position: absolute;
+            padding: 5px 10px;
+            background-color: green;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+            /* Disabled button */
+            .dynamic-btn.disabled {
+                background-color: gray;
+                cursor: not-allowed;
+            }
+
+
+        svg {
+            display: block;
+            box-sizing: border-box;
+        }
+    </style>
 </head>
 <body>
-    <header>
-        <h1>MGP Explorer</h1>
-        <button id="options-btn">Options</button>
-    </header>
-    <div id="game-container">
-        <svg id="map-view" width="800" height="600"></svg>
+    <!-- Search Input -->
+    <input type="text" id="nodeSearch" placeholder="Search nodes..." />
+
+    <!-- Search Results -->
+    <div id="searchResults" class="search-results"></div>
+
+    <style>
+        /* Search Results Styling */
+        .search-results {
+            position: absolute;
+            background: white;
+            border: 1px solid #ccc;
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+            width: 200px;
+        }
+
+            .search-results div {
+                padding: 5px;
+                cursor: pointer;
+            }
+
+                .search-results div:hover {
+                    background-color: #f0f0f0;
+                }
+    </style>
+
+
+    <div class="controls-container">
+        <div class="controls">
+            <div>
+                <div class="slider-label">
+                    <span>Link Distance</span>
+                    <span id="linkDistanceValue">5</span>
+                </div>
+                <input type="range" id="linkDistance" min="0" max="500" step="1" value="5" />
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>Charge Strength</span>
+                    <span id="chargeStrengthValue">-5</span>
+                </div>
+                <input type="range" id="chargeStrength" min="-1000" max="0" step="1" value="-5" />
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>Collision Radius</span>
+                    <span id="collisionRadiusValue">10</span>
+                </div>
+                <input type="range" id="collisionRadius" min="0" max="500" step="1" value="10" />
+            </div>
+        </div>
+        <div class="controls">
+            <div>
+                <div class="slider-label">
+                    <span>Node Scale</span>
+                    <span id="nodeScaleValue">100</span>
+                </div>
+                <input type="range" id="nodeScale" min="0" max="500" step="1" value="100" />
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>Link Scale</span>
+                    <span id="linkScaleValue">100</span>
+                </div>
+                <input type="range" id="linkScaleValue" min="0" max="500" step="1" value="100" />
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>Font Scale</span>
+                    <span id="fontScaleValue">100</span>
+                </div>
+                <input type="range" id="fontScale" min="0" max="500" step="1" value="100" />
+            </div>
+        </div>
+        <div class="controls">
+            <div>
+                <div class="slider-label">
+                    <span>Click Grid Width</span>
+                    <span id="clickGridWidthValue">200</span>
+                </div>
+                <input type="range" id="clickGridWidth" min="50" max="500" step="5" value="200" />
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>Snap Grid Width</span>
+                    <span id="snapGridWidthValue">100</span>
+                </div>
+                <input type="range" id="snapGridWidth" min="50" max="500" step="5" value="100" />
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>Click Year Buffer</span>
+                    <span id="clickYearBufferValue">42</span>
+                </div>
+                <input type="range" id="clickYearBuffer" min="1" max="500" step="1" value="42" />
+            </div>
+        </div>
+        <div class="text-box" id="textBox">
+            Click on a node to see its details here.
+        </div>
+        <div class="controls">
+            <div>
+                <div class="slider-label">
+                    <span>From</span>
+                    <span id="linkDistanceValue">10</span>
+                </div>
+                <input type="range" id="linkDistance" min="3" max="25" step="1" value="25" />
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>To</span>
+                    <span id="chargeStrengthValue">2</span>
+                </div>
+                <input type="range" id="chargeStrength" min="0" max="10" step="1" value="2" />
+            </div>
+            <div>
+                <div class="slider-label">
+                    <span>T</span>
+                    <span id="collisionRadiusValue">50</span>
+                </div>
+                <input type="range" id="collisionRadius" min="5" max="500" step="5" value="50" />
+            </div>
+        </div>
     </div>
-    <script src="script.js"></script>
+
+    <!-- Tooltip -->
+    <div class="tooltip"></div>
+
+    <!-- Main SVG Container -->
+    <svg></svg>
+
+    <!-- Base Panel -->
+
+
 </body>
 </html>
